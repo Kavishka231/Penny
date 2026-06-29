@@ -1,0 +1,11 @@
+{
+  "name": "penny",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Penny personal finance intelligence platform",
+  "scripts": {
+    "dev": "docker compose up --build",
+    "dev:backend": "cd backend && npm run dev",
+    "start": "cd backend && npm start"
+  }
+}
