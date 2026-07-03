@@ -1,9 +1,11 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { query, withTransaction } from '../db.js';
 import { defaultCategories } from '../lib/defaultCategories.js';
 import { requireAuth } from '../middleware/auth.js';
+import { processDueRecurring } from '../services/recurringService.js';
 
 const router = express.Router();
 
@@ -61,10 +63,71 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    try {
+      await processDueRecurring(user.id);
+    } catch (error) {
+      console.error('Failed to process recurring transactions during login', error);
+    }
+
     res.json({
       token: signToken(user),
       user: { id: user.id, name: user.name, email: user.email }
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/forgot-password', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    const token = crypto.randomBytes(24).toString('hex');
+    const result = await query(
+      `UPDATE users
+       SET reset_password_token = $2,
+           reset_password_expires = now() + interval '30 minutes'
+       WHERE email = lower($1)
+       RETURNING email`,
+      [email, token]
+    );
+
+    if (!result.rowCount) {
+      return res.json({ message: 'If that account exists, a reset link has been prepared.' });
+    }
+
+    res.json({
+      message: 'Password reset link prepared. Configure an email provider before production use.',
+      resetToken: token
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/reset-password', async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password || password.length < 8) {
+      return res.status(400).json({ error: 'Reset token and an 8 character password are required' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const result = await query(
+      `UPDATE users
+       SET password_hash = $2,
+           reset_password_token = null,
+           reset_password_expires = null
+       WHERE reset_password_token = $1
+         AND reset_password_expires > now()
+       RETURNING id`,
+      [token, passwordHash]
+    );
+
+    if (!result.rowCount) {
+      return res.status(400).json({ error: 'Reset token is invalid or expired' });
+    }
+
+    res.json({ message: 'Password reset successfully. You can log in now.' });
   } catch (error) {
     next(error);
   }

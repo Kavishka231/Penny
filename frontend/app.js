@@ -2,15 +2,81 @@ const state = {
   token: localStorage.getItem('penny_token'),
   user: JSON.parse(localStorage.getItem('penny_user') || 'null'),
   categories: [],
+  transactions: [],
+  recurringTransactions: [],
   charts: {}
 };
 
-const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+const themeToggle = document.querySelector('.theme-toggle');
+const savedTheme = localStorage.getItem('penny_theme') || 'light';
+
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem('penny_theme', theme);
+  if (themeToggle) themeToggle.textContent = theme === 'dark' ? 'Light' : 'Dark';
+  const themePreference = document.querySelector('[name="themePreference"]');
+  if (themePreference) themePreference.value = theme;
+}
+
+setTheme(savedTheme);
+
+themeToggle?.addEventListener('click', () => {
+  setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+});
+
+let money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const today = new Date().toISOString().slice(0, 10);
 const thisMonth = today.slice(0, 7);
 
+function setLoading(button, loadingText = 'Saving...') {
+  if (!button) return () => {};
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = loadingText;
+  return () => {
+    button.disabled = false;
+    button.textContent = originalText;
+  };
+}
+
+function setStatus(selector, message, isError = false) {
+  const node = document.querySelector(selector);
+  if (!node) return;
+  node.textContent = message;
+  node.classList.toggle('error', isError);
+}
+
+function markInvalid(field, invalid) {
+  field?.classList.toggle('field-error', invalid);
+}
+
+function validatePositiveAmount(field) {
+  const invalid = !field.value || Number(field.value) <= 0;
+  markInvalid(field, invalid);
+  return !invalid;
+}
+
+function validateRequired(form, names) {
+  let valid = true;
+  for (const name of names) {
+    const field = form.elements[name];
+    const invalid = !field?.value?.trim();
+    markInvalid(field, invalid);
+    if (invalid) valid = false;
+  }
+  return valid;
+}
+
 document.querySelector('[name="transactionDate"]').value = today;
 document.querySelector('[name="month"]').value = thisMonth;
+document.querySelector('[name="startDate"]').value = today;
+
+function refreshRecurringCategoryOptions() {
+  const type = document.querySelector('#recurring-form [name="type"]')?.value || null;
+  const select = document.querySelector('#recurring-category');
+  if (!select) return;
+  select.innerHTML = '<option value="">Uncategorized</option>' + categoryOptions(type);
+}
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
@@ -38,8 +104,10 @@ function setSession(payload) {
 function renderShell() {
   document.querySelector('#auth-panel').classList.toggle('hidden', Boolean(state.token));
   document.querySelector('#app-content').classList.toggle('hidden', !state.token);
+  document.querySelector('#app-nav').classList.toggle('hidden', !state.token);
   document.querySelector('#logout-btn').classList.toggle('hidden', !state.token);
   document.querySelector('#user-label').textContent = state.user ? state.user.name : '';
+  document.querySelector('#view-title').textContent = state.token ? 'Dashboard' : 'Login / Sign up';
 }
 
 function setView(view) {
@@ -59,6 +127,8 @@ async function loadCategories() {
   state.categories = await api('/categories');
   document.querySelector('#transaction-category').innerHTML = '<option value="">Uncategorized</option>' + categoryOptions();
   document.querySelector('#budget-category').innerHTML = categoryOptions('expense');
+  document.querySelector('#filter-category').innerHTML = '<option value="">All categories</option>' + categoryOptions();
+  refreshRecurringCategoryOptions();
   document.querySelector('#category-list').innerHTML = state.categories.map((category) => `
     <article class="category-item">
       <span><span class="swatch" style="background:${category.color}"></span>${category.name}</span>
@@ -68,18 +138,20 @@ async function loadCategories() {
 }
 
 async function loadDashboard() {
-  const [summary, categorySpend, trends, alerts] = await Promise.all([
+  const [summary, categorySpend, trends, alerts, budgets, merchants] = await Promise.all([
     api('/analytics/summary'),
     api('/analytics/category-spend'),
     api('/analytics/trends'),
-    api('/alerts')
+    api('/alerts'),
+    api('/analytics/budget-progress'),
+    api('/analytics/top-merchants')
   ]);
 
   document.querySelector('#metric-income').textContent = money.format(summary.income);
   document.querySelector('#metric-expenses').textContent = money.format(summary.expenses);
   document.querySelector('#metric-cash-flow').textContent = money.format(summary.cash_flow);
   document.querySelector('#alert-list').innerHTML = alerts.map((alert) => `
-    <article class="alert-item">${alert.categoryName} is over budget by ${money.format(alert.overBy)}</article>
+    <article class="alert-item ${alert.status === 'warning' ? 'warning' : ''}">${alert.message}</article>
   `).join('');
 
   drawChart('trend-chart', 'bar', {
@@ -94,6 +166,19 @@ async function loadDashboard() {
     labels: categorySpend.map((row) => row.category),
     datasets: [{ data: categorySpend.map((row) => row.total), backgroundColor: categorySpend.map((row) => row.color) }]
   });
+
+  drawChart('budget-chart', 'bar', {
+    labels: budgets.map((row) => row.category),
+    datasets: [
+      { label: 'Spent', data: budgets.map((row) => row.spent), backgroundColor: '#f97316' },
+      { label: 'Limit', data: budgets.map((row) => row.limit_amount), backgroundColor: '#94a3b8' }
+    ]
+  });
+
+  drawChart('merchant-chart', 'bar', {
+    labels: merchants.map((row) => row.merchant),
+    datasets: [{ label: 'Top merchants', data: merchants.map((row) => row.total), backgroundColor: '#0f9f9a' }]
+  });
 }
 
 function drawChart(id, type, data) {
@@ -105,8 +190,27 @@ function drawChart(id, type, data) {
   });
 }
 
-async function loadTransactions(search = '') {
-  const rows = await api(`/transactions${search ? `?search=${encodeURIComponent(search)}` : ''}`);
+function transactionQuery() {
+  const params = new URLSearchParams();
+  const values = {
+    search: document.querySelector('#search')?.value,
+    type: document.querySelector('#filter-type')?.value,
+    categoryId: document.querySelector('#filter-category')?.value,
+    from: document.querySelector('#filter-from')?.value,
+    to: document.querySelector('#filter-to')?.value,
+    minAmount: document.querySelector('#filter-min')?.value,
+    maxAmount: document.querySelector('#filter-max')?.value
+  };
+
+  Object.entries(values).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+async function loadTransactions() {
+  const rows = await api(`/transactions${transactionQuery()}`);
   document.querySelector('#transaction-table').innerHTML = rows.map((row) => `
     <tr>
       <td>${row.transaction_date.slice(0, 10)}</td>
@@ -114,9 +218,32 @@ async function loadTransactions(search = '') {
       <td>${row.category_name || 'Uncategorized'}</td>
       <td>${row.type}</td>
       <td class="amount-${row.type}">${row.type === 'expense' ? '-' : '+'}${money.format(row.amount)}</td>
-      <td><button class="ghost" data-delete="${row.id}">Delete</button></td>
+      <td>
+        <button class="ghost" data-edit="${row.id}">Edit</button>
+        <button class="ghost" data-delete="${row.id}">Delete</button>
+      </td>
     </tr>
   `).join('');
+  state.transactions = rows;
+}
+
+async function loadRecurringTransactions() {
+  const rows = await api('/recurring');
+  state.recurringTransactions = rows;
+  document.querySelector('#recurring-table').innerHTML = rows.length ? rows.map((row) => `
+    <tr class="${row.is_active ? '' : 'paused'}">
+      <td>${row.description}</td>
+      <td>${row.category_name || 'Uncategorized'}</td>
+      <td>${row.frequency}</td>
+      <td class="amount-${row.type}">${row.type === 'expense' ? '-' : '+'}${money.format(row.amount)}</td>
+      <td>${row.next_run_date.slice(0, 10)}</td>
+      <td>${row.is_active ? 'Active' : 'Paused'}</td>
+      <td class="table-actions">
+        <button class="ghost" data-recurring-toggle="${row.id}">${row.is_active ? 'Pause' : 'Resume'}</button>
+        <button class="ghost" data-recurring-delete="${row.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('') : '<tr><td colspan="7" class="empty-state">No recurring transactions yet.</td></tr>';
 }
 
 async function loadBudgets() {
@@ -126,9 +253,9 @@ async function loadBudgets() {
     const limit = Number(row.limit_amount);
     const percent = limit ? Math.min((spent / limit) * 100, 100) : 0;
     return `
-      <article class="budget-item ${spent > limit ? 'over' : ''}">
+      <article class="budget-item ${spent > limit ? 'over' : percent >= 80 ? 'warning' : ''}">
         <strong>${row.category_name}</strong>
-        <p>${money.format(spent)} spent of ${money.format(limit)} ${spent > limit ? ' - over budget' : ''}</p>
+        <p>${money.format(spent)} spent of ${money.format(limit)} ${spent > limit ? ' - over budget' : percent >= 80 ? ' - near monthly limit' : ''}</p>
         <div class="budget-line"><span style="width:${percent}%"></span></div>
       </article>
     `;
@@ -138,23 +265,71 @@ async function loadBudgets() {
 async function loadAll() {
   if (!state.token) return;
   await loadCategories();
-  await Promise.all([loadDashboard(), loadTransactions(), loadBudgets(), loadProfile()]);
+  await loadProfile();
+  await Promise.all([loadDashboard(), loadTransactions(), loadRecurringTransactions(), loadBudgets()]);
 }
 
 document.querySelector('#auth-form').addEventListener('submit', async (event) => {
   event.preventDefault();
+  const stopLoading = setLoading(event.submitter, event.submitter.dataset.mode === 'login' ? 'Logging in...' : 'Creating...');
   const mode = event.submitter.dataset.mode;
-  const data = Object.fromEntries(new FormData(event.currentTarget));
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form));
+  document.querySelector('#auth-error').textContent = '';
+  if (!validateRequired(form, ['email', 'password'])) {
+    stopLoading();
+    return;
+  }
   try {
     const payload = await api(`/auth/${mode}`, { method: 'POST', body: JSON.stringify(data) });
     setSession(payload);
   } catch (error) {
     document.querySelector('#auth-error').textContent = error.message;
+  } finally {
+    stopLoading();
+  }
+});
+
+document.querySelector('#prepare-reset-btn').addEventListener('click', async (event) => {
+  const stopLoading = setLoading(event.currentTarget, 'Preparing...');
+  const email = document.querySelector('#reset-email').value;
+  setStatus('#reset-result', '');
+  try {
+    const result = await api('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+    if (result.resetToken) document.querySelector('#reset-token').value = result.resetToken;
+    setStatus('#reset-result', result.resetToken ? `${result.message} Token filled for local testing.` : result.message);
+  } catch (error) {
+    setStatus('#reset-result', error.message, true);
+  } finally {
+    stopLoading();
+  }
+});
+
+document.querySelector('#reset-password-btn').addEventListener('click', async (event) => {
+  const stopLoading = setLoading(event.currentTarget, 'Resetting...');
+  setStatus('#reset-result', '');
+  try {
+    await api('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        token: document.querySelector('#reset-token').value,
+        password: document.querySelector('#reset-new-password').value
+      })
+    });
+    document.querySelector('#reset-email').value = '';
+    document.querySelector('#reset-token').value = '';
+    document.querySelector('#reset-new-password').value = '';
+    setStatus('#reset-result', 'Password reset successfully. You can log in now.');
+  } catch (error) {
+    setStatus('#reset-result', error.message, true);
+  } finally {
+    stopLoading();
   }
 });
 
 document.querySelector('#logout-btn').addEventListener('click', () => {
-  localStorage.clear();
+  localStorage.removeItem('penny_token');
+  localStorage.removeItem('penny_user');
   state.token = null;
   state.user = null;
   renderShell();
@@ -164,59 +339,208 @@ document.querySelectorAll('.nav-link').forEach((button) => {
   button.addEventListener('click', () => setView(button.dataset.view));
 });
 
+document.querySelector('#recurring-form [name="type"]').addEventListener('change', refreshRecurringCategoryOptions);
+
+document.querySelector('#recurring-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const stopLoading = setLoading(event.submitter, 'Saving...');
+  const data = Object.fromEntries(new FormData(form));
+  const result = document.querySelector('#recurring-result');
+  result.classList.remove('error');
+  result.textContent = '';
+  if (!validateRequired(form, ['description', 'startDate']) || !validatePositiveAmount(form.elements.amount)) {
+    stopLoading();
+    return;
+  }
+  try {
+    await api('/recurring', { method: 'POST', body: JSON.stringify(data) });
+    form.reset();
+    document.querySelector('[name="startDate"]').value = today;
+    document.querySelector('[name="frequency"]').value = 'monthly';
+    refreshRecurringCategoryOptions();
+    result.textContent = 'Recurring transaction added successfully.';
+    await loadRecurringTransactions();
+  } catch (error) {
+    result.classList.add('error');
+    result.textContent = error.message;
+  } finally {
+    stopLoading();
+  }
+});
+
+document.querySelector('#recurring-table').addEventListener('click', async (event) => {
+  const toggleButton = event.target.closest('[data-recurring-toggle]');
+  const deleteButton = event.target.closest('[data-recurring-delete]');
+
+  if (toggleButton) {
+    const recurring = state.recurringTransactions.find((row) => String(row.id) === toggleButton.dataset.recurringToggle);
+    if (!recurring) return;
+    await api(`/recurring/${recurring.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_active: !recurring.is_active })
+    });
+    await loadRecurringTransactions();
+    return;
+  }
+
+  if (deleteButton) {
+    await api(`/recurring/${deleteButton.dataset.recurringDelete}`, { method: 'DELETE' });
+    await loadRecurringTransactions();
+  }
+});
+
 document.querySelector('#transaction-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.currentTarget));
-  await api('/transactions', { method: 'POST', body: JSON.stringify(data) });
-  event.currentTarget.reset();
-  document.querySelector('[name="transactionDate"]').value = today;
-  await Promise.all([loadDashboard(), loadTransactions(), loadBudgets()]);
+  const form = event.currentTarget;
+  const submitButton = event.submitter;
+  const editing = Boolean(form.elements.id.value);
+  const stopLoading = setLoading(submitButton, editing ? 'Updating...' : 'Saving...');
+  if (!validateRequired(form, ['merchant', 'transactionDate']) || !validatePositiveAmount(form.elements.amount)) {
+    stopLoading();
+    return;
+  }
+  const data = Object.fromEntries(new FormData(form));
+  const id = data.id;
+  delete data.id;
+  try {
+    await api(editing ? `/transactions/${id}` : '/transactions', {
+      method: editing ? 'PUT' : 'POST',
+      body: JSON.stringify(data)
+    });
+    form.reset();
+    document.querySelector('[name="transactionDate"]').value = today;
+    document.querySelector('#transaction-form button[type="submit"]').textContent = 'Add transaction';
+    document.querySelector('#cancel-edit-btn').classList.add('hidden');
+    await Promise.all([loadDashboard(), loadTransactions(), loadBudgets()]);
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    stopLoading();
+    if (!form.elements.id.value) {
+      document.querySelector('#transaction-form button[type="submit"]').textContent = 'Add transaction';
+    }
+  }
+});
+
+document.querySelector('#cancel-recurring-edit-btn').addEventListener('click', () => {
+  const form = document.querySelector('#recurring-form');
+  form.reset();
+  document.querySelector('[name="startDate"]').value = today;
+  document.querySelector('[name="frequency"]').value = 'monthly';
+  refreshRecurringCategoryOptions();
+  document.querySelector('#cancel-recurring-edit-btn').classList.add('hidden');
+  form.querySelector('button[type="submit"]').textContent = 'Add recurring';
 });
 
 document.querySelector('#transaction-table').addEventListener('click', async (event) => {
+  const editButton = event.target.closest('[data-edit]');
+  if (editButton) {
+    const transaction = state.transactions.find((row) => row.id === editButton.dataset.edit);
+    if (!transaction) return;
+    const form = document.querySelector('#transaction-form');
+    form.elements.id.value = transaction.id;
+    form.elements.type.value = transaction.type;
+    form.elements.merchant.value = transaction.merchant;
+    form.elements.amount.value = transaction.amount;
+    form.elements.transactionDate.value = transaction.transaction_date.slice(0, 10);
+    form.elements.categoryId.value = transaction.category_id || '';
+    form.elements.notes.value = transaction.notes || '';
+    form.querySelector('button[type="submit"]').textContent = 'Update transaction';
+    document.querySelector('#cancel-edit-btn').classList.remove('hidden');
+    setView('transactions');
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
   const id = event.target.dataset.delete;
   if (!id) return;
   await api(`/transactions/${id}`, { method: 'DELETE' });
   await Promise.all([loadDashboard(), loadTransactions(), loadBudgets()]);
 });
 
-document.querySelector('#search').addEventListener('input', (event) => {
-  loadTransactions(event.target.value);
+document.querySelector('#cancel-edit-btn').addEventListener('click', () => {
+  const form = document.querySelector('#transaction-form');
+  form.reset();
+  form.elements.id.value = '';
+  document.querySelector('[name="transactionDate"]').value = today;
+  form.querySelector('button[type="submit"]').textContent = 'Add transaction';
+  document.querySelector('#cancel-edit-btn').classList.add('hidden');
+});
+
+document.querySelector('#search').addEventListener('input', () => {
+  loadTransactions();
+});
+
+['#filter-type', '#filter-category', '#filter-from', '#filter-to', '#filter-min', '#filter-max'].forEach((selector) => {
+  document.querySelector(selector).addEventListener('input', () => loadTransactions());
+});
+
+document.querySelector('#clear-filters-btn').addEventListener('click', () => {
+  ['#search', '#filter-type', '#filter-category', '#filter-from', '#filter-to', '#filter-min', '#filter-max'].forEach((selector) => {
+    document.querySelector(selector).value = '';
+  });
+  loadTransactions();
 });
 
 document.querySelector('#budget-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.currentTarget));
-  await api('/budgets', { method: 'POST', body: JSON.stringify(data) });
-  await loadBudgets();
-  await loadDashboard();
+  const form = event.currentTarget;
+  const stopLoading = setLoading(event.submitter, 'Saving...');
+  if (!validatePositiveAmount(form.elements.limitAmount)) {
+    stopLoading();
+    return;
+  }
+  try {
+    const data = Object.fromEntries(new FormData(form));
+    await api('/budgets', { method: 'POST', body: JSON.stringify(data) });
+    await loadBudgets();
+    await loadDashboard();
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    stopLoading();
+  }
 });
 
 document.querySelector('#category-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.currentTarget));
-  await api('/categories', { method: 'POST', body: JSON.stringify(data) });
-  event.currentTarget.reset();
-  document.querySelector('[name="color"]').value = '#2563eb';
-  await loadCategories();
-});
-
-document.querySelector('#receipt-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form));
+  const result = document.querySelector('#category-result');
+  result.classList.remove('error');
+  result.textContent = '';
+  const stopLoading = setLoading(event.submitter, 'Saving...');
+  if (!validateRequired(form, ['name'])) {
+    stopLoading();
+    return;
+  }
   try {
-    const result = await api('/receipts/scan', { method: 'POST', body: form });
-    document.querySelector('#receipt-result').textContent = JSON.stringify(result, null, 2);
+    await api('/categories', { method: 'POST', body: JSON.stringify(data) });
+    form.reset();
+    document.querySelector('[name="color"]').value = '#2563eb';
+    result.textContent = 'Category added successfully.';
+    await loadCategories();
   } catch (error) {
-    document.querySelector('#receipt-result').textContent = error.message;
+    result.classList.add('error');
+    result.textContent = error.message;
+  } finally {
+    stopLoading();
   }
 });
 
 document.querySelector('#csv-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const result = await api('/imports/csv', { method: 'POST', body: new FormData(event.currentTarget) });
-  document.querySelector('#csv-result').textContent = `Imported ${result.inserted} transactions.`;
-  await Promise.all([loadDashboard(), loadTransactions(), loadBudgets()]);
+  const stopLoading = setLoading(event.submitter, 'Importing...');
+  try {
+    const result = await api('/imports/csv', { method: 'POST', body: new FormData(event.currentTarget) });
+    document.querySelector('#csv-result').textContent = `Imported ${result.inserted} transactions.`;
+    await Promise.all([loadDashboard(), loadTransactions(), loadBudgets()]);
+  } catch (error) {
+    document.querySelector('#csv-result').textContent = error.message;
+  } finally {
+    stopLoading();
+  }
 });
 
 document.querySelector('#export-btn').addEventListener('click', async () => {
@@ -237,17 +561,46 @@ async function loadProfile() {
   const form = document.querySelector('#profile-form');
   form.elements.name.value = profile.name;
   form.elements.email.value = profile.email;
+  form.elements.phone.value = profile.phone || '';
+  form.elements.address.value = profile.address || '';
+  form.elements.preferredCurrency.value = profile.preferred_currency || 'USD';
+  form.elements.themePreference.value = localStorage.getItem('penny_theme') || profile.theme_preference || 'light';
+  form.elements.budgetResetDay.value = profile.budget_reset_day || 1;
+  form.elements.dateFormat.value = profile.date_format || 'YYYY-MM-DD';
+  money = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: profile.preferred_currency || 'USD'
+  });
+  document.querySelector('#profile-initials').textContent = initialsFor(profile.name);
+}
+
+function initialsFor(name = 'Penny User') {
+  return name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'PU';
 }
 
 document.querySelector('#profile-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.currentTarget));
+  const form = event.currentTarget;
+  const stopLoading = setLoading(event.submitter, 'Saving...');
+  const data = Object.fromEntries(new FormData(form));
   if (!data.password) delete data.password;
-  const profile = await api('/profile', { method: 'PUT', body: JSON.stringify(data) });
-  state.user = { ...state.user, name: profile.name, email: profile.email };
-  localStorage.setItem('penny_user', JSON.stringify(state.user));
-  document.querySelector('#user-label').textContent = profile.name;
-  document.querySelector('#profile-result').textContent = 'Profile saved.';
+  const result = document.querySelector('#profile-result');
+  result.classList.remove('error');
+  result.textContent = '';
+  try {
+    const profile = await api('/profile', { method: 'PUT', body: JSON.stringify(data) });
+    state.user = { ...state.user, name: profile.name, email: profile.email };
+    localStorage.setItem('penny_user', JSON.stringify(state.user));
+    document.querySelector('#user-label').textContent = profile.name;
+    setTheme(profile.theme_preference || data.themePreference);
+    document.querySelector('#profile-initials').textContent = initialsFor(profile.name);
+    result.textContent = 'Profile saved successfully.';
+  } catch (error) {
+    result.classList.add('error');
+    result.textContent = error.message;
+  } finally {
+    stopLoading();
+  }
 });
 
 renderShell();
