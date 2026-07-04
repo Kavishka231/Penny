@@ -1,0 +1,136 @@
+import { z } from 'zod';
+
+const positiveMoney = z
+	.number({ message: 'Amount must be a number' })
+	.positive('Amount must be positive')
+	.refine((value) => Number.isInteger(value * 100), {
+		message: 'Amount must have at most 2 decimal places',
+	});
+
+const isoDateString = z
+	.string()
+	.min(1, 'Date is required')
+	.refine((value) => !Number.isNaN(Date.parse(value)), {
+		message: 'Date must be a valid ISO date',
+	});
+
+const monthString = z
+	.string()
+	.min(1, 'Month is required')
+	.refine((value) => /^\d{4}-\d{2}$/.test(value) || !Number.isNaN(Date.parse(value)), {
+		message: 'Month must be a valid date or YYYY-MM',
+	});
+
+export const registerSchema = z.object({
+	name: z.string().min(1, 'Name is required'),
+	email: z.email('A valid email is required'),
+	password: z.string().min(8, 'Password must be at least 8 characters'),
+}).strict();
+
+export const loginSchema = z.object({
+	email: z.email('A valid email is required'),
+	password: z.string().min(1, 'Password is required'),
+}).strict();
+
+export const forgotPasswordSchema = z.object({
+	email: z.email('A valid email is required'),
+}).strict();
+
+export const resetPasswordSchema = z.object({
+	token: z.string().min(1, 'Token is required'),
+	newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+}).strict().transform(({ token, newPassword }) => ({
+	token,
+	password: newPassword,
+}));
+
+const profileFieldsSchema = z.object({
+	name: z.string().min(1, 'Name must not be empty'),
+	email: z.email('A valid email is required'),
+	password: z.string().min(8, 'Password must be at least 8 characters'),
+	phone: z.string().min(1, 'Phone must not be empty'),
+	address: z.string().min(1, 'Address must not be empty'),
+	preferredCurrency: z.string().min(1, 'Preferred currency must not be empty'),
+	themePreference: z.enum(['light', 'dark']),
+	budgetResetDay: z.number().int().min(1).max(28),
+	dateFormat: z.string().min(1, 'Date format must not be empty'),
+}).strict();
+
+export const profileUpdateSchema = profileFieldsSchema.partial();
+
+export const transactionCreateSchema = z.object({
+	description: z.string().min(1, 'Description is required').transform((v) => v.trim()).refine((v) => v.length > 0, {
+		message: 'Description is required',
+	}),
+	amount: positiveMoney,
+	type: z.enum(['income', 'expense']),
+	category_id: z.number().int().positive().optional(),
+	date: isoDateString.refine((value) => new Date(value) <= new Date(), {
+		message: 'Date cannot be in the future',
+	}),
+}).strict();
+
+export const transactionUpdateSchema = transactionCreateSchema.partial();
+
+export const transactionQuerySchema = z.object({
+	type: z.enum(['income', 'expense']).optional(),
+	categoryId: z.coerce.number().int().positive().optional(),
+	from: z.coerce.date().optional(),
+	to: z.coerce.date().optional(),
+	minAmount: z.coerce.number().positive().optional(),
+	maxAmount: z.coerce.number().positive().optional(),
+	search: z.string().min(1).optional(),
+}).strict().refine((value) => {
+	if (value.from && value.to) {
+		return value.to >= value.from;
+	}
+	return true;
+}, {
+	message: 'The to date must be on or after the from date',
+	path: ['to'],
+});
+
+export const budgetSchema = z.object({
+	category_id: z.number().int().positive(),
+	monthly_limit: z.number().positive(),
+	month: monthString,
+}).strict();
+
+export const budgetQuerySchema = z.object({
+	month: monthString.optional(),
+}).strict();
+
+export const categorySchema = z.object({
+	name: z.string().min(1, 'Category name is required').max(50, 'Category name cannot exceed 50 characters'),
+	type: z.enum(['income', 'expense']),
+	color: z.string().min(1).optional(),
+}).strict();
+
+export const recurringTransactionSchema = z.object({
+	description: z.string().min(1, 'Description is required').transform((v) => v.trim()).refine((v) => v.length > 0, {
+		message: 'Description is required',
+	}),
+	amount: z.number().positive('Amount must be positive'),
+	type: z.enum(['income', 'expense']),
+	category_id: z.number().int().positive().optional(),
+	frequency: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
+	start_date: isoDateString,
+	end_date: isoDateString.optional(),
+	is_active: z.boolean().optional(),
+}).strict().refine((value) => {
+	if (!value.end_date) {
+		return true;
+	}
+	return new Date(value.end_date) > new Date(value.start_date);
+}, {
+	message: 'End date must be after start date',
+	path: ['end_date'],
+});
+
+export const recurringTransactionUpdateSchema = recurringTransactionSchema.partial();
+
+export const alertsQuerySchema = z.object({
+	month: monthString.optional(),
+}).strict();
+
+export const importCsvBodySchema = z.object({}).strict();

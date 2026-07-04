@@ -1,6 +1,8 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import validate, { validateQuery } from '../middleware/validate.js';
+import { budgetQuerySchema, budgetSchema } from '../validation/schemas.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -9,7 +11,7 @@ function monthStart(month) {
   return `${month.slice(0, 7)}-01`;
 }
 
-router.get('/', async (req, res, next) => {
+router.get('/', validateQuery(budgetQuerySchema), async (req, res, next) => {
   try {
     const month = monthStart(req.query.month || new Date().toISOString());
     const result = await query(
@@ -33,9 +35,13 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', validate(budgetSchema), async (req, res, next) => {
   try {
-    const { categoryId, month, limitAmount } = req.body;
+    const {
+      category_id: categoryId,
+      month,
+      monthly_limit: limitAmount,
+    } = req.body;
     if (!categoryId || !month || limitAmount === undefined) {
       return res.status(400).json({ error: 'Category, month and limit are required' });
     }

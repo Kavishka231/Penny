@@ -1,6 +1,11 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import validate from '../middleware/validate.js';
+import {
+  recurringTransactionSchema,
+  recurringTransactionUpdateSchema,
+} from '../validation/schemas.js';
 
 const router = express.Router();
 
@@ -19,6 +24,15 @@ function normalizePayload(body) {
   };
 }
 
+function mapRecurringSchemaBody(body) {
+  const mapped = { ...body };
+  if ('category_id' in body) mapped.categoryId = body.category_id;
+  if ('start_date' in body) mapped.startDate = body.start_date;
+  if ('end_date' in body) mapped.endDate = body.end_date;
+  if ('is_active' in body) mapped.isActive = body.is_active;
+  return mapped;
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const result = await query(
@@ -35,9 +49,9 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', validate(recurringTransactionSchema), async (req, res, next) => {
   try {
-    const payload = normalizePayload(req.body);
+    const payload = normalizePayload(mapRecurringSchemaBody(req.body));
     if (!payload.description || !payload.amount || !payload.type || !payload.frequency || !payload.startDate) {
       return res.status(400).json({ error: 'Description, amount, type, frequency and start date are required' });
     }
@@ -77,9 +91,9 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', validate(recurringTransactionUpdateSchema), async (req, res, next) => {
   try {
-    const payload = normalizePayload(req.body);
+    const payload = normalizePayload(mapRecurringSchemaBody(req.body));
     const fields = [];
     const values = [req.params.id, req.user.id];
 
