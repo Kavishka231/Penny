@@ -5,7 +5,14 @@ import crypto from 'crypto';
 import { query, withTransaction } from '../db.js';
 import { defaultCategories } from '../lib/defaultCategories.js';
 import { requireAuth } from '../middleware/auth.js';
+import validate from '../middleware/validate.js';
 import { processDueRecurring } from '../services/recurringService.js';
+import {
+  forgotPasswordSchema,
+  loginSchema,
+  registerSchema,
+  resetPasswordSchema,
+} from '../validation/schemas.js';
 
 const router = express.Router();
 
@@ -17,7 +24,7 @@ function signToken(user) {
   );
 }
 
-router.post('/register', async (req, res, next) => {
+router.post('/register', validate(registerSchema), async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
     if (!name || !email || !password || password.length < 8) {
@@ -50,7 +57,7 @@ router.post('/register', async (req, res, next) => {
   }
 });
 
-router.post('/login', async (req, res, next) => {
+router.post('/login', validate(loginSchema), async (req, res, next) => {
   try {
     const { email, password } = req.body;
     const result = await query(
@@ -78,7 +85,7 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-router.post('/forgot-password', async (req, res, next) => {
+router.post('/forgot-password', validate(forgotPasswordSchema), async (req, res, next) => {
   try {
     const { email } = req.body;
     const token = crypto.randomBytes(24).toString('hex');
@@ -104,7 +111,7 @@ router.post('/forgot-password', async (req, res, next) => {
   }
 });
 
-router.post('/reset-password', async (req, res, next) => {
+router.post('/reset-password', validate(resetPasswordSchema), async (req, res, next) => {
   try {
     const { token, password } = req.body;
     if (!token || !password || password.length < 8) {
