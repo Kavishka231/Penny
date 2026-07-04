@@ -128,3 +128,9 @@ export const recurringTransactionSchema = z.object({
 });
 
 export const recurringTransactionUpdateSchema = recurringTransactionSchema.partial();
+
+export const alertsQuerySchema = z.object({
+	month: monthString.optional(),
+}).strict();
+
+export const importCsvBodySchema = z.object({}).strict();
