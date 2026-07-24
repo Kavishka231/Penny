@@ -38,10 +38,14 @@ export const forgotPasswordSchema = z.object({
 
 export const resetPasswordSchema = z.object({
 	token: z.string().min(1, 'Token is required'),
-	newPassword: z.string().min(8, 'Password must be at least 8 characters'),
-}).strict().transform(({ token, newPassword }) => ({
+	password: z.string().min(8, 'Password must be at least 8 characters').optional(),
+	newPassword: z.string().min(8, 'Password must be at least 8 characters').optional(),
+}).strict().refine(({ password, newPassword }) => Boolean(password || newPassword), {
+	message: 'Password is required',
+	path: ['password'],
+}).transform(({ token, password, newPassword }) => ({
 	token,
-	password: newPassword,
+	password: password || newPassword,
 }));
 
 const profileFieldsSchema = z.object({

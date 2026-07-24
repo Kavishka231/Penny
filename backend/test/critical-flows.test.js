@@ -1,16 +1,22 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'penny-tests-only-secret';
+process.env.PASSWORD_RESET_EXPOSE_TOKEN = 'true';
+process.env.PASSWORD_RESET_RATE_LIMIT_MAX = '8';
 
 let request;
 let app;
 let pool;
 let processDueRecurring;
 let buildBudgetAlert;
+let hashResetToken;
+let mayExposeResetToken;
 let primary;
 let secondary;
+let validResetToken;
 
 const currentDate = new Date().toISOString().slice(0, 10);
 const currentMonth = `${currentDate.slice(0, 7)}-01`;
@@ -34,6 +40,7 @@ before(async () => {
   ({ pool } = await import('../src/db.js'));
   ({ processDueRecurring } = await import('../src/services/recurringService.js'));
   ({ buildBudgetAlert } = await import('../src/routes/alerts.js'));
+  ({ hashResetToken, mayExposeResetToken } = await import('../src/services/passwordResetService.js'));
 });
 
 after(async () => {
@@ -81,13 +88,83 @@ test('prepares password resets without revealing whether unknown accounts exist'
     .post('/api/auth/forgot-password')
     .send({ email: 'primary@example.com' });
   assert.equal(existing.status, 200, existing.text);
-  assert.match(existing.body.resetToken, /^[a-f0-9]{48}$/);
+  assert.match(existing.body.resetToken, /^[a-f0-9]{64}$/);
+  validResetToken = existing.body.resetToken;
+
+  const stored = await pool.query(
+    'SELECT reset_password_token_hash FROM users WHERE id = $1',
+    [primary.user.id]
+  );
+  assert.equal(stored.rows[0].reset_password_token_hash, hashResetToken(validResetToken));
+  assert.notEqual(stored.rows[0].reset_password_token_hash, validResetToken);
 
   const unknown = await request(app)
     .post('/api/auth/forgot-password')
     .send({ email: 'missing@example.com' });
   assert.equal(unknown.status, 200);
   assert.equal(unknown.body.resetToken, undefined);
+});
+
+test('never permits reset-token exposure in production', () => {
+  const previousEnvironment = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  assert.equal(mayExposeResetToken(), false);
+  process.env.NODE_ENV = previousEnvironment;
+});
+
+test('accepts a valid reset token once and updates the password', async () => {
+  const reset = await request(app)
+    .post('/api/auth/reset-password')
+    .send({ token: validResetToken, newPassword: 'NewStrongPass456!' });
+  assert.equal(reset.status, 200, reset.text);
+
+  const stored = await pool.query(
+    'SELECT reset_password_token_hash, reset_password_expires FROM users WHERE id = $1',
+    [primary.user.id]
+  );
+  assert.equal(stored.rows[0].reset_password_token_hash, null);
+  assert.equal(stored.rows[0].reset_password_expires, null);
+
+  const login = await request(app)
+    .post('/api/auth/login')
+    .send({ email: 'primary@example.com', password: 'NewStrongPass456!' });
+  assert.equal(login.status, 200, login.text);
+});
+
+test('rejects a reused reset token', async () => {
+  const reused = await request(app)
+    .post('/api/auth/reset-password')
+    .send({ token: validResetToken, newPassword: 'AnotherStrongPass789!' });
+  assert.equal(reused.status, 400);
+  assert.equal(reused.body.error, 'Reset token is invalid or expired');
+});
+
+test('rejects an expired reset token', async () => {
+  const requestReset = await request(app)
+    .post('/api/auth/forgot-password')
+    .send({ email: 'primary@example.com' });
+  assert.equal(requestReset.status, 200, requestReset.text);
+
+  await pool.query(
+    `UPDATE users
+     SET reset_password_expires = $2
+     WHERE id = $1`,
+    [primary.user.id, new Date(Date.now() - 60_000)]
+  );
+
+  const expired = await request(app)
+    .post('/api/auth/reset-password')
+    .send({ token: requestReset.body.resetToken, newPassword: 'ExpiredStrongPass123!' });
+  assert.equal(expired.status, 400);
+  assert.equal(expired.body.error, 'Reset token is invalid or expired');
+});
+
+test('rejects an invalid reset token', async () => {
+  const invalid = await request(app)
+    .post('/api/auth/reset-password')
+    .send({ token: crypto.randomBytes(32).toString('hex'), newPassword: 'InvalidStrongPass123!' });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.error, 'Reset token is invalid or expired');
 });
 
 test('creates, edits, reads, and deletes a transaction', async () => {
@@ -253,4 +330,24 @@ test('calculates current-month income, expenses, cash flow, and category spend',
   const categorySpend = await authenticated('get', '/api/analytics/category-spend', primary.token);
   assert.equal(categorySpend.status, 200, categorySpend.text);
   assert.ok(categorySpend.body.some((row) => Number(row.total) >= 85));
+});
+
+test('rate limits repeated password-reset requests', async () => {
+  let limitedResponse;
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const response = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'rate-limit@example.com' });
+    if (response.status === 429) {
+      limitedResponse = response;
+      break;
+    }
+  }
+
+  assert.ok(limitedResponse, 'Expected password reset requests to be rate limited');
+  assert.equal(
+    limitedResponse.body.error,
+    'Too many password reset requests. Please try again later.'
+  );
 });

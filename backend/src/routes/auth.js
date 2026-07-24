@@ -1,12 +1,20 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
+import { rateLimit } from 'express-rate-limit';
 import { query, withTransaction } from '../db.js';
 import { defaultCategories } from '../lib/defaultCategories.js';
 import { requireAuth } from '../middleware/auth.js';
 import validate from '../middleware/validate.js';
 import { processDueRecurring } from '../services/recurringService.js';
+import {
+  createResetToken,
+  hashResetToken,
+  isEmailDeliveryConfigured,
+  mayExposeResetToken,
+  resetTokenExpiresAt,
+  sendPasswordResetEmail,
+} from '../services/passwordResetService.js';
 import {
   forgotPasswordSchema,
   loginSchema,
@@ -15,6 +23,14 @@ import {
 } from '../validation/schemas.js';
 
 const router = express.Router();
+const resetRequestLimiter = rateLimit({
+  windowMs: Number(process.env.PASSWORD_RESET_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+  limit: Number(process.env.PASSWORD_RESET_RATE_LIMIT_MAX || 5),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many password reset requests. Please try again later.' }
+});
+const resetResponseMessage = 'If that account exists, a reset link has been prepared.';
 
 function signToken(user) {
   return jwt.sign(
@@ -85,27 +101,46 @@ router.post('/login', validate(loginSchema), async (req, res, next) => {
   }
 });
 
-router.post('/forgot-password', validate(forgotPasswordSchema), async (req, res, next) => {
+router.post('/forgot-password', resetRequestLimiter, validate(forgotPasswordSchema), async (req, res, next) => {
   try {
+    const exposeToken = mayExposeResetToken();
+    if (!isEmailDeliveryConfigured() && !exposeToken) {
+      return res.status(503).json({ error: 'Password reset delivery is not configured' });
+    }
+
     const { email } = req.body;
-    const token = crypto.randomBytes(24).toString('hex');
+    const { token, tokenHash } = createResetToken();
+    const expiresAt = resetTokenExpiresAt();
     const result = await query(
       `UPDATE users
-       SET reset_password_token = $2,
-           reset_password_expires = now() + interval '30 minutes'
+       SET reset_password_token_hash = $2,
+           reset_password_expires = $3
        WHERE email = lower($1)
        RETURNING email`,
-      [email, token]
+      [email, tokenHash, expiresAt]
     );
 
     if (!result.rowCount) {
-      return res.json({ message: 'If that account exists, a reset link has been prepared.' });
+      return res.json({ message: resetResponseMessage });
     }
 
-    res.json({
-      message: 'Password reset link prepared. Configure an email provider before production use.',
-      resetToken: token
-    });
+    try {
+      await sendPasswordResetEmail({ email: result.rows[0].email, token });
+    } catch (error) {
+      console.error('Failed to deliver password reset email', error);
+      await query(
+        `UPDATE users
+         SET reset_password_token_hash = null,
+             reset_password_expires = null
+         WHERE email = lower($1)
+           AND reset_password_token_hash = $2`,
+        [email, tokenHash]
+      );
+    }
+
+    const response = { message: resetResponseMessage };
+    if (exposeToken) response.resetToken = token;
+    res.json(response);
   } catch (error) {
     next(error);
   }
@@ -119,15 +154,16 @@ router.post('/reset-password', validate(resetPasswordSchema), async (req, res, n
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
+    const tokenHash = hashResetToken(token);
     const result = await query(
       `UPDATE users
        SET password_hash = $2,
-           reset_password_token = null,
+           reset_password_token_hash = null,
            reset_password_expires = null
-       WHERE reset_password_token = $1
+       WHERE reset_password_token_hash = $1
          AND reset_password_expires > now()
        RETURNING id`,
-      [token, passwordHash]
+      [tokenHash, passwordHash]
     );
 
     if (!result.rowCount) {

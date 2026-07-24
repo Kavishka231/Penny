@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   theme_preference TEXT NOT NULL DEFAULT 'light' CHECK (theme_preference IN ('light', 'dark')),
   budget_reset_day INTEGER NOT NULL DEFAULT 1 CHECK (budget_reset_day BETWEEN 1 AND 28),
   date_format TEXT NOT NULL DEFAULT 'YYYY-MM-DD',
-  reset_password_token TEXT,
+  reset_password_token_hash TEXT,
   reset_password_expires TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
