@@ -7,6 +7,29 @@ import { alertsQuerySchema } from '../validation/schemas.js';
 const router = express.Router();
 router.use(requireAuth);
 
+export function buildBudgetAlert(row) {
+  const spent = Number(row.spent);
+  const limit = Number(row.limit_amount);
+  const overBy = spent - limit;
+  const remaining = limit - spent;
+  const percent = Math.round((spent / limit) * 100);
+  const status = spent > limit ? 'over' : 'warning';
+
+  return {
+    id: row.id,
+    status,
+    categoryName: row.category_name,
+    limitAmount: row.limit_amount,
+    spent: row.spent,
+    overBy,
+    remaining,
+    percent,
+    message: status === 'over'
+      ? `${row.category_name} is over budget by ${overBy.toFixed(2)}`
+      : `${row.category_name} is near the monthly limit: ${percent}% used, ${remaining.toFixed(2)} left`
+  };
+}
+
 router.get('/', validateQuery(alertsQuerySchema), async (req, res, next) => {
   try {
     const month = `${(req.query.month || new Date().toISOString()).slice(0, 7)}-01`;
@@ -29,28 +52,7 @@ router.get('/', validateQuery(alertsQuerySchema), async (req, res, next) => {
       [req.user.id, month]
     );
 
-    res.json(result.rows.map((row) => {
-      const spent = Number(row.spent);
-      const limit = Number(row.limit_amount);
-      const overBy = spent - limit;
-      const remaining = limit - spent;
-      const percent = Math.round((spent / limit) * 100);
-      const status = spent > limit ? 'over' : 'warning';
-
-      return {
-        id: row.id,
-        status,
-        categoryName: row.category_name,
-        limitAmount: row.limit_amount,
-        spent: row.spent,
-        overBy,
-        remaining,
-        percent,
-        message: status === 'over'
-          ? `${row.category_name} is over budget by ${overBy.toFixed(2)}`
-          : `${row.category_name} is near the monthly limit: ${percent}% used, ${remaining.toFixed(2)} left`
-      };
-    }));
+    res.json(result.rows.map(buildBudgetAlert));
   } catch (error) {
     next(error);
   }
