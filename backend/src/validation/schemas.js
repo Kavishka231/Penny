@@ -64,7 +64,7 @@ export const transactionCreateSchema = z.object({
 	}),
 	amount: positiveMoney,
 	type: z.enum(['income', 'expense']),
-	category_id: z.number().int().positive().optional(),
+	category_id: z.uuid().optional(),
 	date: isoDateString.refine((value) => new Date(value) <= new Date(), {
 		message: 'Date cannot be in the future',
 	}),
@@ -74,7 +74,7 @@ export const transactionUpdateSchema = transactionCreateSchema.partial();
 
 export const transactionQuerySchema = z.object({
 	type: z.enum(['income', 'expense']).optional(),
-	categoryId: z.coerce.number().int().positive().optional(),
+	categoryId: z.uuid().optional(),
 	from: z.coerce.date().optional(),
 	to: z.coerce.date().optional(),
 	minAmount: z.coerce.number().positive().optional(),
@@ -91,7 +91,7 @@ export const transactionQuerySchema = z.object({
 });
 
 export const budgetSchema = z.object({
-	category_id: z.number().int().positive(),
+	category_id: z.uuid(),
 	monthly_limit: z.number().positive(),
 	month: monthString,
 }).strict();
@@ -106,28 +106,40 @@ export const categorySchema = z.object({
 	color: z.string().min(1).optional(),
 }).strict();
 
-export const recurringTransactionSchema = z.object({
+const recurringTransactionFields = z.object({
 	description: z.string().min(1, 'Description is required').transform((v) => v.trim()).refine((v) => v.length > 0, {
 		message: 'Description is required',
 	}),
 	amount: z.number().positive('Amount must be positive'),
 	type: z.enum(['income', 'expense']),
-	category_id: z.number().int().positive().optional(),
+	category_id: z.uuid().optional(),
 	frequency: z.enum(['daily', 'weekly', 'monthly', 'yearly']),
 	start_date: isoDateString,
 	end_date: isoDateString.optional(),
 	is_active: z.boolean().optional(),
-}).strict().refine((value) => {
+}).strict();
+
+function endDateAfterStartDate(value) {
 	if (!value.end_date) {
 		return true;
 	}
 	return new Date(value.end_date) > new Date(value.start_date);
-}, {
+}
+
+const recurringDateRangeError = {
 	message: 'End date must be after start date',
 	path: ['end_date'],
-});
+};
 
-export const recurringTransactionUpdateSchema = recurringTransactionSchema.partial();
+export const recurringTransactionSchema = recurringTransactionFields.refine(
+	endDateAfterStartDate,
+	recurringDateRangeError,
+);
+
+export const recurringTransactionUpdateSchema = recurringTransactionFields.partial().refine(
+	(value) => !value.start_date || endDateAfterStartDate(value),
+	recurringDateRangeError,
+);
 
 export const alertsQuerySchema = z.object({
 	month: monthString.optional(),
