@@ -1,24 +1,26 @@
 # Penny
 
-Penny is a full-stack personal finance intelligence platform for tracking income, expenses, budgets and receipt-based transaction capture.
+Penny is a full-stack personal finance intelligence platform for tracking income, expenses, budgets and manually entered transaction records.
 
 ## Features
 
 - JWT authentication with per-user financial data isolation.
 - Transaction ledger for income and expenses with search, category labels and CSV export.
+- Transaction editing and amount/date/type/category filters.
 - Default and custom categories stored in PostgreSQL.
 - Monthly category budgets with remaining balance and overspend status.
 - Budget alerts when monthly spending exceeds a saved limit.
-- Profile management for name, email and password updates.
-- Analytics dashboard with cash flow metrics, category spend and six-month trends using Chart.js.
+- Profile management for name, email, password, contact details and user settings.
+- Password reset flow with local/dev reset token output.
+- Analytics dashboard with cash flow metrics, category spend, budget progress, top merchants and six-month trends using Chart.js.
 - Bank statement CSV import for bulk transaction upload.
-- Claude-powered receipt scanning endpoint that extracts merchant, amount, date, category and notes from receipt images.
+- Manual transaction entry for accurate user-reviewed records.
 
 ## Stack
 
 - Backend: Node.js, Express.js, PostgreSQL
 - Frontend: HTML, CSS, vanilla JavaScript, Chart.js
-- AI integration: Anthropic Claude API
+- Charts: Chart.js
 - Authentication: JWT
 - Infrastructure: Docker and Docker Compose
 
@@ -40,10 +42,6 @@ Penny is a full-stack personal finance intelligence platform for tracking income
 
 PostgreSQL is initialized from `database/schema.sql` and is available to the API on Docker's internal network. The API serves the frontend from the same origin, so no extra frontend build step is required.
 
-## Claude Receipt Scanning
-
-Set `CLAUDE_API_KEY` in your shell or `.env` before starting the API. Without a key, the receipt scan endpoint returns a clear configuration error while the rest of the app continues to work.
-
 ## CSV Import Format
 
 The importer accepts CSV files with these common columns:
@@ -59,6 +57,8 @@ Negative amounts are treated as expenses. Positive amounts default to income unl
 
 - `POST /api/auth/register`
 - `POST /api/auth/login`
+- `POST /api/auth/forgot-password`
+- `POST /api/auth/reset-password`
 - `GET /api/categories`
 - `POST /api/categories`
 - `GET /api/transactions`
@@ -70,7 +70,8 @@ Negative amounts are treated as expenses. Positive amounts default to income unl
 - `GET /api/analytics/summary`
 - `GET /api/analytics/category-spend`
 - `GET /api/analytics/trends`
-- `POST /api/receipts/scan`
+- `GET /api/analytics/budget-progress`
+- `GET /api/analytics/top-merchants`
 - `POST /api/imports/csv`
 - `GET /api/reports/transactions.csv`
 - `GET /api/alerts`
