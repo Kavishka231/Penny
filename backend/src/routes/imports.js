@@ -3,11 +3,13 @@ import multer from 'multer';
 import { parse } from 'csv-parse/sync';
 import { withTransaction } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import validate from '../middleware/validate.js';
+import { importCsvBodySchema } from '../validation/schemas.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
-router.post('/csv', requireAuth, upload.single('statement'), async (req, res, next) => {
+router.post('/csv', requireAuth, upload.single('statement'), validate(importCsvBodySchema), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'CSV file is required' });
 

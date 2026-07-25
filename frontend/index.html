@@ -3,141 +3,299 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Penny</title>
+    <title>Penny | Personal Finance Intelligence</title>
+    <meta name="description" content="Penny helps people enter transactions, manage budgets, track spending, and understand cash flow from a clean finance dashboard.">
     <link rel="stylesheet" href="/styles.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body>
-    <main class="app-shell">
-      <aside class="sidebar">
-        <div class="brand">Penny</div>
-        <nav>
-          <button class="nav-link active" data-view="dashboard">Dashboard</button>
-          <button class="nav-link" data-view="transactions">Transactions</button>
-          <button class="nav-link" data-view="budgets">Budgets</button>
-          <button class="nav-link" data-view="categories">Categories</button>
-          <button class="nav-link" data-view="tools">Imports</button>
-          <button class="nav-link" data-view="profile">Profile</button>
-        </nav>
-      </aside>
+    <header class="site-header">
+      <a class="logo" href="#top" aria-label="Penny home">
+        <span class="logo-mark">P</span>
+        <span>Penny</span>
+      </a>
+      <nav class="header-nav" aria-label="Primary navigation">
+        <a href="#top">Home</a>
+        <a href="#about">About</a>
+        <a href="#services">Services</a>
+        <a href="#security">Security</a>
+        <a href="#faq">FAQ</a>
+        <a href="#contact">Contact</a>
+      </nav>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" aria-label="Switch color theme">Dark</button>
+        <a class="nav-cta" href="/app.html">Login / Sign up</a>
+      </div>
+    </header>
 
-      <section class="workspace">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">Personal Finance Intelligence</p>
-            <h1 id="view-title">Dashboard</h1>
+    <main id="top">
+      <section class="hero section-grid">
+        <div class="hero-copy reveal-left">
+          <p class="eyebrow">Personal finance intelligence</p>
+          <h1>Turn budgets, spending, and income into calm daily decisions.</h1>
+          <p class="hero-text">
+            Penny gives individuals and small teams a clean place to enter transactions, watch budgets, and understand money movement without spreadsheet stress.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="/app.html">Start tracking</a>
+            <a class="button secondary" href="#features">Explore features</a>
           </div>
-          <div class="auth-actions">
-            <span id="user-label"></span>
-            <button id="logout-btn" class="ghost hidden">Log out</button>
+          <div class="hero-stats" aria-label="Product highlights">
+            <span><strong>6 mo</strong> trend view</span>
+            <span><strong>Manual</strong> entry</span>
+            <span><strong>CSV</strong> import/export</span>
           </div>
-        </header>
+        </div>
 
-        <section id="auth-panel" class="auth-panel">
-          <form id="auth-form">
-            <h2>Sign in or create an account</h2>
-            <input name="name" placeholder="Name">
-            <input name="email" type="email" placeholder="Email" required>
-            <input name="password" type="password" placeholder="Password" minlength="8" required>
-            <div class="form-row">
-              <button type="submit" data-mode="login">Log in</button>
-              <button type="submit" data-mode="register" class="secondary">Register</button>
+        <div class="mockup-wrap reveal-right">
+          <div class="dashboard-mockup" aria-label="Penny dashboard preview">
+            <div class="mockup-topbar">
+              <span></span><span></span><span></span>
+              <strong>Penny Dashboard</strong>
             </div>
-            <p id="auth-error" class="error"></p>
-          </form>
-        </section>
-
-        <section id="app-content" class="hidden">
-          <section id="dashboard" class="view active">
-            <div id="alert-list" class="alert-list"></div>
-            <div class="metric-grid">
-              <article><span>Income</span><strong id="metric-income">$0.00</strong></article>
-              <article><span>Expenses</span><strong id="metric-expenses">$0.00</strong></article>
-              <article><span>Cash flow</span><strong id="metric-cash-flow">$0.00</strong></article>
+            <div class="mockup-body">
+              <div class="mock-card balance-card">
+                <p>Cash flow</p>
+                <strong>$2,840</strong>
+                <small>+18% this month</small>
+              </div>
+              <div class="mock-card">
+                <p>Budget alert</p>
+                <strong>$92 over</strong>
+                <small>Dining category</small>
+              </div>
+              <div class="mock-chart">
+                <span style="height: 42%"></span>
+                <span style="height: 66%"></span>
+                <span style="height: 38%"></span>
+                <span style="height: 78%"></span>
+                <span style="height: 55%"></span>
+                <span style="height: 86%"></span>
+              </div>
+              <div class="transaction-list">
+                <div><span>Market expense</span><strong>-$48.20</strong></div>
+                <div><span>Client invoice</span><strong>+$900.00</strong></div>
+                <div><span>Statement import</span><strong>32 rows</strong></div>
+              </div>
             </div>
-            <div class="chart-grid">
-              <div class="panel"><canvas id="trend-chart"></canvas></div>
-              <div class="panel"><canvas id="category-chart"></canvas></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="content-section">
+        <div class="section-heading reveal-left">
+          <p class="eyebrow">Everything in one ledger</p>
+          <h2>Built for fast capture and confident review.</h2>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card reveal-scale">
+            <span class="feature-icon">01</span>
+            <h3>Manual transaction entry</h3>
+            <p>Enter merchant, amount, date, notes, income or expense type, and category yourself.</p>
+          </article>
+          <article class="feature-card reveal-scale">
+            <span class="feature-icon">02</span>
+            <h3>Smart ledger</h3>
+            <p>Log income and expenses, search entries, filter by category, and keep every transaction organized.</p>
+          </article>
+          <article class="feature-card reveal-scale">
+            <span class="feature-icon">03</span>
+            <h3>Budget alerts</h3>
+            <p>Set monthly limits and see overspend warnings before small leaks become big surprises.</p>
+          </article>
+          <article class="feature-card reveal-scale">
+            <span class="feature-icon">04</span>
+            <h3>CSV workflows</h3>
+            <p>Import bank statements in bulk and export clean reports when you need a portable record.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="about" class="content-section">
+        <div class="section-heading reveal-left">
+          <p class="eyebrow">Company introduction</p>
+          <h2>Built to make personal finance feel simple, visible, and secure.</h2>
+          <p>Penny is a personal finance intelligence platform for transactions, budgets, spending insights, reports, and everyday money confidence.</p>
+        </div>
+        <div class="info-grid">
+          <article class="info-card reveal-up"><h3>Our Story</h3><p>Penny started as a practical way to reduce manual finance work and turn daily transactions into useful insight.</p></article>
+          <article class="info-card reveal-up"><h3>Mission</h3><p>Help users understand their money faster with clean tracking, smart automation, and simple dashboards.</p></article>
+          <article class="info-card reveal-up"><h3>Vision</h3><p>Become a trusted finance companion for individuals, freelancers, students, and small teams.</p></article>
+          <article class="info-card reveal-up"><h3>Core Values</h3><p>Clarity, privacy, reliability, accessibility, and automation that helps without adding complexity.</p></article>
+        </div>
+      </section>
+
+      <section id="services" class="content-section">
+        <div class="section-heading reveal-left">
+          <p class="eyebrow">What we do</p>
+          <h2>Services for daily money management.</h2>
+        </div>
+        <div class="info-grid">
+          <article class="info-card reveal-scale"><h3>Transaction Management</h3><p>Add, edit, filter, and review income or expense records with clear manual details.</p></article>
+          <article class="info-card reveal-scale"><h3>Budget Intelligence</h3><p>Track category limits, overspending alerts, budget progress, and monthly cash flow.</p></article>
+          <article class="info-card reveal-scale"><h3>Manual Data Control</h3><p>Keep transaction details accurate by entering and reviewing them directly.</p></article>
+          <article class="info-card reveal-scale"><h3>Reports and Imports</h3><p>Import CSV bank statements and export transaction reports for review or record keeping.</p></article>
+        </div>
+      </section>
+
+      <section id="workflow" class="content-section split-section">
+        <div class="phone-mockup reveal-left">
+          <div class="phone-screen">
+            <div class="entry-card">
+              <span>Expense saved</span>
+              <strong>Fresh Mart</strong>
+              <p>$64.18 categorized as Groceries</p>
             </div>
-          </section>
+            <div class="mini-row"></div>
+            <div class="mini-row short"></div>
+            <div class="mini-row"></div>
+          </div>
+        </div>
+        <div class="split-copy reveal-right">
+          <p class="eyebrow">Clear manual control</p>
+          <h2>Enter, categorize, and reconcile in a few clicks.</h2>
+          <p>
+            Penny is designed for everyday finance upkeep: quick transaction entry, category management, and profile-safe account access.
+          </p>
+          <ul class="check-list">
+            <li>JWT-secured account sessions</li>
+            <li>Default and custom spend categories</li>
+            <li>PostgreSQL-backed financial records</li>
+          </ul>
+        </div>
+      </section>
 
-          <section id="transactions" class="view">
-            <form id="transaction-form" class="panel form-grid">
-              <select name="type">
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
-              </select>
-              <input name="merchant" placeholder="Merchant or source" required>
-              <input name="amount" type="number" step="0.01" min="0.01" placeholder="Amount" required>
-              <input name="transactionDate" type="date" required>
-              <select name="categoryId" id="transaction-category"></select>
-              <input name="notes" placeholder="Notes">
-              <button type="submit">Add transaction</button>
-            </form>
-            <div class="toolbar">
-              <input id="search" placeholder="Search ledger">
-              <button id="export-btn" class="secondary">Export CSV</button>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th>Type</th><th>Amount</th><th></th></tr></thead>
-                <tbody id="transaction-table"></tbody>
-              </table>
-            </div>
-          </section>
+      <section id="insights" class="content-section insight-band">
+        <div class="section-heading centered reveal-up">
+          <p class="eyebrow">Financial visibility</p>
+          <h2>See the story behind every month.</h2>
+        </div>
+        <div class="insight-grid">
+          <article class="insight-card reveal-up">
+            <strong>Cash flow</strong>
+            <p>Compare income and expenses in the current month.</p>
+          </article>
+          <article class="insight-card reveal-up">
+            <strong>Category mix</strong>
+            <p>Understand where spending clusters across your budget.</p>
+          </article>
+          <article class="insight-card reveal-up">
+            <strong>Six-month trends</strong>
+            <p>Spot patterns before they become habits.</p>
+          </article>
+        </div>
+      </section>
 
-          <section id="budgets" class="view">
-            <form id="budget-form" class="panel form-grid">
-              <input name="month" type="month" required>
-              <select name="categoryId" id="budget-category"></select>
-              <input name="limitAmount" type="number" step="0.01" min="0" placeholder="Monthly limit" required>
-              <button type="submit">Save budget</button>
-            </form>
-            <div id="budget-list" class="budget-list"></div>
-          </section>
+      <section class="content-section">
+        <div class="section-heading reveal-left">
+          <p class="eyebrow">Why choose us</p>
+          <h2>A focused finance app with practical automation.</h2>
+        </div>
+        <div class="stats-grid">
+          <article class="stat-card reveal-up"><strong>250+</strong><span>transactions per ledger view</span></article>
+          <article class="stat-card reveal-up"><strong>6</strong><span>months of trend visibility</span></article>
+          <article class="stat-card reveal-up"><strong>24/7</strong><span>self-service dashboard access</span></article>
+          <article class="stat-card reveal-up"><strong>100%</strong><span>per-user data separation</span></article>
+        </div>
+      </section>
 
-          <section id="categories" class="view">
-            <form id="category-form" class="panel form-grid">
-              <input name="name" placeholder="Category name" required>
-              <select name="type">
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
-              </select>
-              <input name="color" type="color" value="#2563eb" aria-label="Category color">
-              <button type="submit">Add category</button>
-            </form>
-            <div id="category-list" class="category-list"></div>
-          </section>
+      <section class="content-section">
+        <div class="section-heading reveal-left">
+          <p class="eyebrow">Team and technology</p>
+          <h2>Modern web technology behind a simple experience.</h2>
+        </div>
+        <div class="info-grid">
+          <article class="info-card reveal-up"><h3>Meet Our Team</h3><p>Led by Kavishka Sandeepa, Penny focuses on useful finance tools for real workflows.</p></article>
+          <article class="info-card reveal-up"><h3>Leadership</h3><p>Product direction centers on usability, secure access, clean design, and time-saving automation.</p></article>
+          <article class="info-card reveal-up"><h3>Our Technology</h3><p>Node.js, Express, PostgreSQL, Chart.js, vanilla JavaScript, Docker, and JWT authentication.</p></article>
+          <article class="info-card reveal-up"><h3>Industries We Serve</h3><p>Individuals, students, freelancers, small teams, and anyone who wants clearer personal finance tracking.</p></article>
+        </div>
+      </section>
 
-          <section id="tools" class="view">
-            <div class="tool-grid">
-              <form id="receipt-form" class="panel">
-                <h2>Receipt scan</h2>
-                <input name="receipt" type="file" accept="image/*" required>
-                <button type="submit">Scan receipt</button>
-                <pre id="receipt-result"></pre>
-              </form>
-              <form id="csv-form" class="panel">
-                <h2>Statement import</h2>
-                <input name="statement" type="file" accept=".csv,text/csv" required>
-                <button type="submit">Import CSV</button>
-                <p id="csv-result"></p>
-              </form>
-            </div>
-          </section>
+      <section id="security" class="content-section">
+        <div class="section-heading reveal-left">
+          <p class="eyebrow">Trust</p>
+          <h2>Security, privacy, and responsible handling.</h2>
+        </div>
+        <div class="info-grid">
+          <article class="info-card reveal-scale"><h3>Security & Privacy</h3><p>JWT-protected routes, hashed passwords, per-user data isolation, and database constraints protect records.</p></article>
+          <article class="info-card reveal-scale"><h3>Certifications</h3><p>Prepared with security-minded architecture and ready for future formal compliance work.</p></article>
+          <article class="info-card reveal-scale"><h3>Awards & Recognition</h3><p>A portfolio-ready full-stack finance intelligence platform demonstrating real app workflows.</p></article>
+          <article class="info-card reveal-scale"><h3>Partners</h3><p>Designed to connect with AI providers, bank CSV exports, cloud storage, and email delivery services.</p></article>
+        </div>
+      </section>
 
-          <section id="profile" class="view">
-            <form id="profile-form" class="panel form-grid">
-              <input name="name" placeholder="Name" required>
-              <input name="email" type="email" placeholder="Email" required>
-              <input name="password" type="password" minlength="8" placeholder="New password">
-              <button type="submit">Save profile</button>
-            </form>
-            <p id="profile-result"></p>
-          </section>
-        </section>
+      <section class="content-section split-section">
+        <div class="split-copy reveal-left">
+          <p class="eyebrow">Customer success</p>
+          <h2>Designed for repeat daily use.</h2>
+          <p>Penny helps users reduce spreadsheet work, keep clean transaction details, and quickly understand where money is going.</p>
+        </div>
+        <div class="testimonial-card reveal-right">
+          <p>"Penny gives me one clean place for spending, budgets, transactions, and reports. It feels simple without being empty."</p>
+          <strong>Sample User</strong>
+          <span>Freelance designer</span>
+        </div>
+      </section>
+
+      <section id="faq" class="content-section">
+        <div class="section-heading reveal-left">
+          <p class="eyebrow">FAQ</p>
+          <h2>Frequently asked questions.</h2>
+        </div>
+        <div class="faq-list">
+          <details class="reveal-up"><summary>Do I need an account?</summary><p>Yes. Dashboard, transactions, budgets, imports, and profile tools are only shown after login.</p></details>
+          <details class="reveal-up"><summary>Do I enter transactions manually?</summary><p>Yes. Users enter transaction details directly so records stay intentional and easy to review.</p></details>
+          <details class="reveal-up"><summary>Does it support dark mode?</summary><p>Yes. Users can toggle theme and save their preference in profile settings.</p></details>
+          <details class="reveal-up"><summary>Is this production-ready?</summary><p>It is a strong portfolio/demo app. For production, add real email delivery and formal security review.</p></details>
+        </div>
+      </section>
+
+      <section id="contact" class="content-section cta-section reveal">
+        <div>
+          <p class="eyebrow">Call to action</p>
+          <h2>Open Penny and start with your first transaction.</h2>
+          <p>Contact Kavishka Sandeepa at +94 783783408 or visit 136, Colombo, Sri Lanka for project inquiries.</p>
+        </div>
+        <a class="button primary" href="/app.html">Login / Sign up</a>
       </section>
     </main>
-    <script src="/app.js" type="module"></script>
+
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <a class="logo" href="#top" aria-label="Penny home">
+          <span class="logo-mark">P</span>
+          <span>Penny</span>
+        </a>
+        <p>Personal finance intelligence for transactions, budgets, spending insights, and clean reports.</p>
+      </div>
+      <div class="footer-grid">
+        <div>
+          <h3>Product</h3>
+          <a href="#features">Features</a>
+          <a href="#services">Services</a>
+          <a href="#security">Security</a>
+          <a href="/app.html">Login / Sign up</a>
+        </div>
+        <div>
+          <h3>Company</h3>
+          <a href="#about">About</a>
+          <a href="#security">Security</a>
+          <a href="#faq">FAQ</a>
+          <a href="#contact">Contact</a>
+        </div>
+        <div>
+          <h3>Contact</h3>
+          <span>Owner: Kavishka Sandeepa</span>
+          <span>+94 783783408</span>
+          <span>136, Colombo, Sri Lanka</span>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>(c) 2026 Penny Finance Labs. All rights reserved.</span>
+        <span>Privacy | Terms | Status</span>
+      </div>
+    </footer>
+
+    <script src="/landing.js"></script>
   </body>
 </html>

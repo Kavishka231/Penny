@@ -1,39 +1,76 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { validateQuery } from '../middleware/validate.js';
+import { alertsQuerySchema } from '../validation/schemas.js';
 
 const router = express.Router();
 router.use(requireAuth);
 
-router.get('/', async (req, res, next) => {
+export function buildBudgetAlert(row) {
+  const spent = Number(row.spent);
+  const limit = Number(row.limit_amount);
+  const overBy = spent - limit;
+  const remaining = limit - spent;
+  const percent = Math.round((spent / limit) * 100);
+  const status = spent > limit ? 'over' : 'warning';
+
+  return {
+    id: row.id,
+    status,
+    categoryName: row.category_name,
+    limitAmount: row.limit_amount,
+    spent: row.spent,
+    overBy,
+    remaining,
+    percent,
+    message: status === 'over'
+      ? `${row.category_name} is over budget by ${overBy.toFixed(2)}`
+      : `${row.category_name} is near the monthly limit: ${percent}% used, ${remaining.toFixed(2)} left`
+  };
+}
+
+router.get('/', validateQuery(alertsQuerySchema), async (req, res, next) => {
   try {
     const month = `${(req.query.month || new Date().toISOString()).slice(0, 7)}-01`;
-    const result = await query(
+    const [budgets, spending] = await Promise.all([
+      query(
       `SELECT b.id,
+              b.category_id,
               c.name AS category_name,
-              b.limit_amount,
-              COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) AS spent
+              b.limit_amount
        FROM budgets b
        JOIN categories c ON c.id = b.category_id
-       LEFT JOIN transactions t
-         ON t.category_id = b.category_id
-        AND t.user_id = b.user_id
-        AND date_trunc('month', t.transaction_date)::date = b.month
        WHERE b.user_id = $1 AND b.month = $2
-       GROUP BY b.id, c.name, b.limit_amount
-       HAVING COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) > b.limit_amount
-       ORDER BY COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) - b.limit_amount DESC`,
+         AND b.limit_amount > 0`,
       [req.user.id, month]
+      ),
+      query(
+        `SELECT category_id, SUM(amount) AS spent
+         FROM transactions
+         WHERE user_id = $1
+           AND type = 'expense'
+           AND date_trunc('month', transaction_date)::date = $2
+         GROUP BY category_id`,
+        [req.user.id, month]
+      )
+    ]);
+    const spentByCategory = new Map(
+      spending.rows.map((row) => [row.category_id, Number(row.spent)])
     );
+    const alertRows = budgets.rows
+      .map((budget) => ({
+        ...budget,
+        spent: spentByCategory.get(budget.category_id) || 0
+      }))
+      .filter((budget) => budget.spent >= Number(budget.limit_amount) * 0.8)
+      .sort((left, right) => (
+        right.spent - Number(right.limit_amount)
+      ) - (
+        left.spent - Number(left.limit_amount)
+      ));
 
-    res.json(result.rows.map((row) => ({
-      id: row.id,
-      categoryName: row.category_name,
-      limitAmount: row.limit_amount,
-      spent: row.spent,
-      overBy: Number(row.spent) - Number(row.limit_amount),
-      message: `${row.category_name} is over budget by ${Number(row.spent) - Number(row.limit_amount)}`
-    })));
+    res.json(alertRows.map(buildBudgetAlert));
   } catch (error) {
     next(error);
   }

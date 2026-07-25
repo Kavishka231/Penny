@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Penny App</title>
+    <link rel="stylesheet" href="/app.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="sidebar-head">
+          <a class="brand" href="/">Penny</a>
+          <button class="theme-toggle" type="button" aria-label="Switch color theme">Dark</button>
+        </div>
+        <nav id="app-nav" class="hidden">
+          <button class="nav-link active" data-view="dashboard">Dashboard</button>
+          <button class="nav-link" data-view="transactions">Transactions</button>
+          <button class="nav-link" data-view="recurring">Recurring</button>
+          <button class="nav-link" data-view="budgets">Budgets</button>
+          <button class="nav-link" data-view="categories">Categories</button>
+          <button class="nav-link" data-view="tools">Imports</button>
+          <button class="nav-link" data-view="profile">Profile</button>
+        </nav>
+      </header>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Personal Finance Intelligence</p>
+            <h1 id="view-title">Dashboard</h1>
+          </div>
+          <div class="auth-actions">
+            <span id="user-label"></span>
+            <button id="logout-btn" class="ghost hidden">Log out</button>
+          </div>
+        </header>
+
+        <section id="auth-panel" class="auth-panel">
+          <form id="auth-form">
+            <h2>Sign in or create an account</h2>
+            <input name="name" placeholder="Name">
+            <input name="email" type="email" placeholder="Email" required>
+            <input name="password" type="password" placeholder="Password" minlength="8" required>
+            <div class="form-row">
+              <button type="submit" data-mode="login">Log in</button>
+              <button type="submit" data-mode="register" class="secondary">Register</button>
+            </div>
+            <p id="auth-error" class="error"></p>
+            <details class="forgot-panel">
+              <summary>Forgot password?</summary>
+              <input id="reset-email" type="email" placeholder="Account email">
+              <button type="button" id="prepare-reset-btn" class="secondary">Prepare reset link</button>
+              <input id="reset-token" placeholder="Reset token">
+              <input id="reset-new-password" type="password" minlength="8" placeholder="New password">
+              <button type="button" id="reset-password-btn">Reset password</button>
+              <p id="reset-result" class="status-message"></p>
+            </details>
+          </form>
+        </section>
+
+        <section id="app-content" class="hidden">
+          <section id="dashboard" class="view active">
+            <div id="alert-list" class="alert-list"></div>
+            <div class="metric-grid">
+              <article><span>Income</span><strong id="metric-income">$0.00</strong></article>
+              <article><span>Expenses</span><strong id="metric-expenses">$0.00</strong></article>
+              <article><span>Cash flow</span><strong id="metric-cash-flow">$0.00</strong></article>
+            </div>
+            <div class="chart-grid">
+              <div class="panel"><canvas id="trend-chart"></canvas></div>
+              <div class="panel"><canvas id="category-chart"></canvas></div>
+              <div class="panel"><canvas id="budget-chart"></canvas></div>
+              <div class="panel"><canvas id="merchant-chart"></canvas></div>
+            </div>
+          </section>
+
+          <section id="transactions" class="view">
+            <form id="transaction-form" class="panel form-grid">
+              <input type="hidden" name="id">
+              <select name="type" aria-label="Transaction type">
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+              </select>
+              <input name="merchant" placeholder="Merchant or source" required>
+              <input name="amount" type="number" step="0.01" min="0.01" placeholder="Amount" required>
+              <input name="transactionDate" type="date" required>
+              <select name="categoryId" id="transaction-category"></select>
+              <input name="notes" placeholder="Notes">
+              <button type="submit">Add transaction</button>
+              <button type="button" id="cancel-edit-btn" class="secondary hidden">Cancel edit</button>
+            </form>
+            <div class="toolbar">
+              <input id="search" placeholder="Search ledger">
+              <select id="filter-type" aria-label="Filter by type">
+                <option value="">All types</option>
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+              </select>
+              <select id="filter-category" aria-label="Filter by category">
+                <option value="">All categories</option>
+              </select>
+              <input id="filter-from" type="date" aria-label="From date">
+              <input id="filter-to" type="date" aria-label="To date">
+              <input id="filter-min" type="number" min="0" step="0.01" placeholder="Min amount">
+              <input id="filter-max" type="number" min="0" step="0.01" placeholder="Max amount">
+              <button id="clear-filters-btn" class="secondary">Clear filters</button>
+              <button id="export-btn" class="secondary">Export CSV</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Merchant</th><th>Category</th><th>Type</th><th>Amount</th><th></th></tr></thead>
+                <tbody id="transaction-table"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="recurring" class="view">
+            <form id="recurring-form" class="panel form-grid">
+              <input type="hidden" name="id">
+              <input name="description" placeholder="Description" required>
+              <input name="amount" type="number" step="0.01" min="0.01" placeholder="Amount" required>
+              <select name="type" aria-label="Recurring type">
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+              </select>
+              <select name="categoryId" id="recurring-category" aria-label="Recurring category"></select>
+              <select name="frequency" aria-label="Recurring frequency" required>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly" selected>Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+              <input name="startDate" type="date" required>
+              <input name="endDate" type="date" aria-label="Optional end date">
+              <button type="submit">Add recurring</button>
+              <button type="button" id="cancel-recurring-edit-btn" class="secondary hidden">Cancel edit</button>
+            </form>
+            <p id="recurring-result" class="status-message"></p>
+            <div class="table-wrap recurring-table-wrap">
+              <table>
+                <thead><tr><th>Description</th><th>Category</th><th>Frequency</th><th>Amount</th><th>Next run</th><th>Status</th><th></th></tr></thead>
+                <tbody id="recurring-table"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="budgets" class="view">
+            <form id="budget-form" class="panel form-grid">
+              <input name="month" type="month" required>
+              <select name="categoryId" id="budget-category"></select>
+              <input name="limitAmount" type="number" step="0.01" min="0" placeholder="Monthly limit" required>
+              <button type="submit">Save budget</button>
+            </form>
+            <div id="budget-list" class="budget-list"></div>
+          </section>
+
+          <section id="categories" class="view">
+            <form id="category-form" class="panel form-grid">
+              <input name="name" placeholder="Category name" required>
+              <select name="type" aria-label="Category type">
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+              </select>
+              <input name="color" type="color" value="#2563eb" aria-label="Category color">
+              <button type="submit">Add category</button>
+            </form>
+            <p id="category-result" class="status-message"></p>
+            <div id="category-list" class="category-list"></div>
+          </section>
+
+          <section id="tools" class="view">
+            <div class="tool-grid">
+              <form id="csv-form" class="panel">
+                <h2>Statement import</h2>
+                <input name="statement" type="file" accept=".csv,text/csv" required>
+                <button type="submit">Import CSV</button>
+                <p id="csv-result"></p>
+              </form>
+            </div>
+          </section>
+
+          <section id="profile" class="view">
+            <form id="profile-form" class="panel profile-panel">
+              <div class="profile-initials-editor">
+                <div id="profile-initials" class="profile-initials" aria-label="Profile initials">PU</div>
+                <p class="muted-text">Profile details are entered manually.</p>
+              </div>
+              <div class="profile-fields">
+                <input name="name" placeholder="Full name" required>
+                <input name="email" type="email" placeholder="Email address" required>
+                <input name="phone" placeholder="Phone number">
+                <input name="address" placeholder="Address">
+                <select name="preferredCurrency" aria-label="Preferred currency">
+                  <option value="USD">USD - US Dollar</option>
+                  <option value="LKR">LKR - Sri Lankan Rupee</option>
+                  <option value="EUR">EUR - Euro</option>
+                  <option value="GBP">GBP - British Pound</option>
+                  <option value="AUD">AUD - Australian Dollar</option>
+                </select>
+                <select name="themePreference" aria-label="Theme preference">
+                  <option value="light">Light mode</option>
+                  <option value="dark">Dark mode</option>
+                </select>
+                <input name="budgetResetDay" type="number" min="1" max="28" placeholder="Budget reset day">
+                <select name="dateFormat" aria-label="Preferred date format">
+                  <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                  <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                  <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                </select>
+                <input name="password" type="password" minlength="8" placeholder="New password">
+                <button type="submit">Save profile</button>
+              </div>
+            </form>
+            <p id="profile-result" class="status-message"></p>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

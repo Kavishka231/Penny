@@ -1,6 +1,12 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import validate, { validateQuery } from '../middleware/validate.js';
+import {
+  transactionCreateSchema,
+  transactionQuerySchema,
+  transactionUpdateSchema,
+} from '../validation/schemas.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -13,7 +19,9 @@ function filters(req) {
     ['type', 't.type ='],
     ['categoryId', 't.category_id ='],
     ['from', 't.transaction_date >='],
-    ['to', 't.transaction_date <=']
+    ['to', 't.transaction_date <='],
+    ['minAmount', 't.amount >='],
+    ['maxAmount', 't.amount <=']
   ]) {
     if (req.query[key]) {
       params.push(req.query[key]);
@@ -29,7 +37,7 @@ function filters(req) {
   return { clauses, params };
 }
 
-router.get('/', async (req, res, next) => {
+router.get('/', validateQuery(transactionQuerySchema), async (req, res, next) => {
   try {
     const { clauses, params } = filters(req);
     const result = await query(
@@ -47,9 +55,17 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', validate(transactionCreateSchema), async (req, res, next) => {
   try {
-    const { type, categoryId, merchant, amount, transactionDate, notes, source = 'manual' } = req.body;
+    const {
+      type,
+      category_id: categoryId,
+      description: merchant,
+      amount,
+      date: transactionDate,
+      notes,
+      source = 'manual',
+    } = req.body;
     if (!['income', 'expense'].includes(type) || !merchant || !amount || !transactionDate) {
       return res.status(400).json({ error: 'Type, merchant, amount and date are required' });
     }
@@ -66,9 +82,16 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', validate(transactionUpdateSchema), async (req, res, next) => {
   try {
-    const { type, categoryId, merchant, amount, transactionDate, notes } = req.body;
+    const {
+      type,
+      category_id: categoryId,
+      description: merchant,
+      amount,
+      date: transactionDate,
+      notes,
+    } = req.body;
     const result = await query(
       `UPDATE transactions
        SET type = $3, category_id = $4, merchant = $5, amount = $6, transaction_date = $7, notes = $8, updated_at = now()

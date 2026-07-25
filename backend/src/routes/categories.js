@@ -1,6 +1,8 @@
 import express from 'express';
 import { query } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import validate from '../middleware/validate.js';
+import { categorySchema } from '../validation/schemas.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -17,7 +19,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', validate(categorySchema), async (req, res, next) => {
   try {
     const { name, type, color = '#3b82f6' } = req.body;
     if (!name || !['income', 'expense'].includes(type)) {
@@ -30,6 +32,9 @@ router.post('/', async (req, res, next) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'That category already exists for this type' });
+    }
     next(error);
   }
 });
