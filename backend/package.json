@@ -7,7 +7,7 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "test": "node --test --test-concurrency=1 test/critical-flows.test.js ../frontend/api-contract.test.js",
-    "test:browser": "node --test --test-concurrency=1 test/browser-contract.test.js"
+    "test:browser": "node --test --test-concurrency=1 test/browser-contract.test.js test/password-reset-browser.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -25,9 +25,11 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "mailparser": "^3.9.14",
     "nodemon": "^3.1.4",
     "pg-mem": "^3.0.14",
     "playwright-core": "^1.62.0",
+    "smtp-server": "^3.19.2",
     "supertest": "^7.2.2"
   }
 }

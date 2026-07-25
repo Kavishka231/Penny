@@ -17,7 +17,9 @@ import recurringRoutes from './routes/recurring.js';
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const publicDir = path.resolve(__dirname, '..', 'public');
+const publicDir = process.env.FRONTEND_DIR
+  ? path.resolve(process.env.FRONTEND_DIR)
+  : path.resolve(__dirname, '..', 'public');
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());

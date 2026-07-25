@@ -1,3 +1,11 @@
+import {
+  authPayload,
+  budgetPayload,
+  profilePayload,
+  recurringPayload,
+  resetPasswordPayload,
+  transactionPayload
+} from './api-contract.js';
 import { escapeHtml } from './safe-html.js';
 
 const state = {
@@ -29,6 +37,19 @@ themeToggle?.addEventListener('click', () => {
 let money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const today = new Date().toISOString().slice(0, 10);
 const thisMonth = today.slice(0, 7);
+
+function applyResetTokenFromUrl() {
+  const url = new URL(window.location.href);
+  const resetToken = url.searchParams.get('resetToken');
+  if (!resetToken) return;
+
+  document.querySelector('#reset-token').value = resetToken;
+  document.querySelector('#auth-panel details').open = true;
+  setStatus('#reset-result', 'Reset link verified. Enter a new password to continue.');
+
+  url.searchParams.delete('resetToken');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
 
 function setLoading(button, loadingText = 'Saving...') {
   if (!button) return () => {};
@@ -72,6 +93,7 @@ function validateRequired(form, names) {
 document.querySelector('[name="transactionDate"]').value = today;
 document.querySelector('[name="month"]').value = thisMonth;
 document.querySelector('[name="startDate"]').value = today;
+applyResetTokenFromUrl();
 
 function refreshRecurringCategoryOptions() {
   const type = document.querySelector('#recurring-form [name="type"]')?.value || null;
