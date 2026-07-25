@@ -33,26 +33,44 @@ export function buildBudgetAlert(row) {
 router.get('/', validateQuery(alertsQuerySchema), async (req, res, next) => {
   try {
     const month = `${(req.query.month || new Date().toISOString()).slice(0, 7)}-01`;
-    const result = await query(
+    const [budgets, spending] = await Promise.all([
+      query(
       `SELECT b.id,
+              b.category_id,
               c.name AS category_name,
-              b.limit_amount,
-              COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) AS spent
+              b.limit_amount
        FROM budgets b
        JOIN categories c ON c.id = b.category_id
-       LEFT JOIN transactions t
-         ON t.category_id = b.category_id
-        AND t.user_id = b.user_id
-        AND date_trunc('month', t.transaction_date)::date = b.month
        WHERE b.user_id = $1 AND b.month = $2
-       GROUP BY b.id, c.name, b.limit_amount
-       HAVING b.limit_amount > 0
-          AND COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) >= b.limit_amount * 0.8
-       ORDER BY COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) - b.limit_amount DESC`,
+         AND b.limit_amount > 0`,
       [req.user.id, month]
+      ),
+      query(
+        `SELECT category_id, SUM(amount) AS spent
+         FROM transactions
+         WHERE user_id = $1
+           AND type = 'expense'
+           AND date_trunc('month', transaction_date)::date = $2
+         GROUP BY category_id`,
+        [req.user.id, month]
+      )
+    ]);
+    const spentByCategory = new Map(
+      spending.rows.map((row) => [row.category_id, Number(row.spent)])
     );
+    const alertRows = budgets.rows
+      .map((budget) => ({
+        ...budget,
+        spent: spentByCategory.get(budget.category_id) || 0
+      }))
+      .filter((budget) => budget.spent >= Number(budget.limit_amount) * 0.8)
+      .sort((left, right) => (
+        right.spent - Number(right.limit_amount)
+      ) - (
+        left.spent - Number(left.limit_amount)
+      ));
 
-    res.json(result.rows.map(buildBudgetAlert));
+    res.json(alertRows.map(buildBudgetAlert));
   } catch (error) {
     next(error);
   }

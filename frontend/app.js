@@ -432,6 +432,7 @@ document.querySelector('#transaction-form').addEventListener('submit', async (ev
       body: JSON.stringify(data)
     });
     form.reset();
+    form.elements.id.value = '';
     document.querySelector('[name="transactionDate"]').value = today;
     document.querySelector('#transaction-form button[type="submit"]').textContent = 'Add transaction';
     document.querySelector('#cancel-edit-btn').classList.add('hidden');

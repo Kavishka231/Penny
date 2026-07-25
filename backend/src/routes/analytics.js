@@ -51,22 +51,35 @@ router.get('/category-spend', async (req, res, next) => {
 router.get('/trends', async (req, res, next) => {
   try {
     const result = await query(
-      `SELECT to_char(months.month, 'Mon YYYY') AS month,
-              COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'income'), 0) AS income,
-              COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) AS expenses
-       FROM generate_series(
-         date_trunc('month', CURRENT_DATE) - interval '5 months',
-         date_trunc('month', CURRENT_DATE),
-         interval '1 month'
-       ) months(month)
-       LEFT JOIN transactions t
-         ON date_trunc('month', t.transaction_date) = months.month
-        AND t.user_id = $1
-       GROUP BY months.month
-       ORDER BY months.month`,
+      `SELECT transaction_date, type, amount
+       FROM transactions
+       WHERE user_id = $1`,
       [req.user.id]
     );
-    res.json(result.rows);
+
+    const totals = new Map();
+    result.rows.forEach((row) => {
+      const date = new Date(row.transaction_date);
+      const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+      const month = totals.get(key) || { income: 0, expenses: 0 };
+      month[row.type === 'income' ? 'income' : 'expenses'] += Number(row.amount);
+      totals.set(key, month);
+    });
+
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC'
+    });
+    const current = new Date();
+    const trends = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() - 5 + index, 1));
+      const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+      const month = totals.get(key) || { income: 0, expenses: 0 };
+      return { month: formatter.format(date), ...month };
+    });
+
+    res.json(trends);
   } catch (error) {
     next(error);
   }

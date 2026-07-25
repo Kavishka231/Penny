@@ -1,11 +1,13 @@
 import 'dotenv/config';
 import app from './app.js';
-import { ensureDatabase } from './db.js';
+import { runMigrations } from './migrate.js';
 import cron from 'node-cron';
 import { processDueRecurring } from './services/recurringService.js';
+import { validateProductionConfig } from './config.js';
 
 const port = process.env.PORT || 3000;
-ensureDatabase()
+validateProductionConfig();
+runMigrations()
   .then(() => {
     cron.schedule('0 2 * * *', async () => {
       try {

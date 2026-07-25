@@ -14,22 +14,36 @@ function monthStart(month) {
 router.get('/', validateQuery(budgetQuerySchema), async (req, res, next) => {
   try {
     const month = monthStart(req.query.month || new Date().toISOString());
-    const result = await query(
-      `SELECT b.*, c.name AS category_name, c.color AS category_color,
-              COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) AS spent,
-              b.limit_amount - COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) AS remaining
+    const [budgets, spending] = await Promise.all([
+      query(
+      `SELECT b.*, c.name AS category_name, c.color AS category_color
        FROM budgets b
        JOIN categories c ON c.id = b.category_id
-       LEFT JOIN transactions t
-         ON t.category_id = b.category_id
-        AND t.user_id = b.user_id
-        AND date_trunc('month', t.transaction_date)::date = b.month
        WHERE b.user_id = $1 AND b.month = $2
-       GROUP BY b.id, c.name, c.color
        ORDER BY c.name`,
       [req.user.id, month]
+      ),
+      query(
+        `SELECT category_id, SUM(amount) AS spent
+         FROM transactions
+         WHERE user_id = $1
+           AND type = 'expense'
+           AND date_trunc('month', transaction_date)::date = $2
+         GROUP BY category_id`,
+        [req.user.id, month]
+      )
+    ]);
+    const spentByCategory = new Map(
+      spending.rows.map((row) => [row.category_id, Number(row.spent)])
     );
-    res.json(result.rows);
+    res.json(budgets.rows.map((budget) => {
+      const spent = spentByCategory.get(budget.category_id) || 0;
+      return {
+        ...budget,
+        spent,
+        remaining: Number(budget.limit_amount) - spent
+      };
+    }));
   } catch (error) {
     next(error);
   }

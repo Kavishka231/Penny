@@ -6,6 +6,7 @@ process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'penny-tests-only-secret';
 process.env.PASSWORD_RESET_EXPOSE_TOKEN = 'true';
 process.env.PASSWORD_RESET_RATE_LIMIT_MAX = '8';
+process.env.ALLOWED_ORIGINS = 'https://trusted.penny.test';
 
 let request;
 let app;
@@ -58,6 +59,20 @@ test('registers users and creates isolated default categories', async () => {
   assert.equal(categories.status, 200, categories.text);
   assert.ok(categories.body.length > 0);
   assert.ok(categories.body.every((category) => category.user_id === primary.user.id));
+});
+
+test('reports database health and applies browser security policy', async () => {
+  const health = await request(app).get('/api/health');
+  assert.equal(health.status, 200, health.text);
+  assert.equal(health.body.database, 'ready');
+  assert.match(health.headers['content-security-policy'], /default-src 'self'/);
+  assert.equal(health.headers['x-content-type-options'], 'nosniff');
+
+  const rejectedOrigin = await request(app)
+    .get('/api/health')
+    .set('Origin', 'https://untrusted.example.com');
+  assert.equal(rejectedOrigin.status, 403, rejectedOrigin.text);
+  assert.equal(rejectedOrigin.body.error, 'Origin is not allowed by CORS');
 });
 
 test('logs in with valid credentials and rejects an invalid login', async () => {

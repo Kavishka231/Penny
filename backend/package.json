@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "migrate": "node src/migrate.js",
     "test": "node --test --test-concurrency=1 test/critical-flows.test.js ../frontend/api-contract.test.js",
-    "test:browser": "node --test --test-concurrency=1 test/browser-contract.test.js test/password-reset-browser.test.js"
+    "test:browser": "node --test --test-concurrency=1 test/full-browser-flows.test.js test/password-reset-browser.test.js test/browser-contract.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -18,8 +19,8 @@
     "express-rate-limit": "^8.6.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^1.4.5-lts.1",
-    "node-cron": "^3.0.3",
+    "multer": "^2.2.0",
+    "node-cron": "^4.6.0",
     "nodemailer": "^9.0.3",
     "pg": "^8.12.0",
     "zod": "^4.4.3"
