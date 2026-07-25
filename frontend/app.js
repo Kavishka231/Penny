@@ -1,11 +1,4 @@
-import {
-  authPayload,
-  budgetPayload,
-  profilePayload,
-  recurringPayload,
-  resetPasswordPayload,
-  transactionPayload
-} from './api-contract.js';
+import { escapeHtml } from './safe-html.js';
 
 const state = {
   token: localStorage.getItem('penny_token'),
@@ -128,7 +121,7 @@ function setView(view) {
 function categoryOptions(type = null) {
   return state.categories
     .filter((category) => !type || category.type === type)
-    .map((category) => `<option value="${category.id}">${category.name}</option>`)
+    .map((category) => `<option value="${escapeHtml(category.id)}">${escapeHtml(category.name)}</option>`)
     .join('');
 }
 
@@ -140,8 +133,8 @@ async function loadCategories() {
   refreshRecurringCategoryOptions();
   document.querySelector('#category-list').innerHTML = state.categories.map((category) => `
     <article class="category-item">
-      <span><span class="swatch" style="background:${category.color}"></span>${category.name}</span>
-      <strong>${category.type}</strong>
+      <span><span class="swatch" style="background:${escapeHtml(category.color)}"></span>${escapeHtml(category.name)}</span>
+      <strong>${escapeHtml(category.type)}</strong>
     </article>
   `).join('');
 }
@@ -160,7 +153,7 @@ async function loadDashboard() {
   document.querySelector('#metric-expenses').textContent = money.format(summary.expenses);
   document.querySelector('#metric-cash-flow').textContent = money.format(summary.cash_flow);
   document.querySelector('#alert-list').innerHTML = alerts.map((alert) => `
-    <article class="alert-item ${alert.status === 'warning' ? 'warning' : ''}">${alert.message}</article>
+    <article class="alert-item ${alert.status === 'warning' ? 'warning' : ''}">${escapeHtml(alert.message)}</article>
   `).join('');
 
   drawChart('trend-chart', 'bar', {
@@ -222,14 +215,14 @@ async function loadTransactions() {
   const rows = await api(`/transactions${transactionQuery()}`);
   document.querySelector('#transaction-table').innerHTML = rows.map((row) => `
     <tr>
-      <td>${row.transaction_date.slice(0, 10)}</td>
-      <td>${row.merchant}</td>
-      <td>${row.category_name || 'Uncategorized'}</td>
-      <td>${row.type}</td>
-      <td class="amount-${row.type}">${row.type === 'expense' ? '-' : '+'}${money.format(row.amount)}</td>
+      <td>${escapeHtml(row.transaction_date.slice(0, 10))}</td>
+      <td>${escapeHtml(row.merchant)}</td>
+      <td>${escapeHtml(row.category_name || 'Uncategorized')}</td>
+      <td>${escapeHtml(row.type)}</td>
+      <td class="amount-${escapeHtml(row.type)}">${row.type === 'expense' ? '-' : '+'}${escapeHtml(money.format(row.amount))}</td>
       <td>
-        <button class="ghost" data-edit="${row.id}">Edit</button>
-        <button class="ghost" data-delete="${row.id}">Delete</button>
+        <button class="ghost" data-edit="${escapeHtml(row.id)}">Edit</button>
+        <button class="ghost" data-delete="${escapeHtml(row.id)}">Delete</button>
       </td>
     </tr>
   `).join('');
@@ -241,15 +234,15 @@ async function loadRecurringTransactions() {
   state.recurringTransactions = rows;
   document.querySelector('#recurring-table').innerHTML = rows.length ? rows.map((row) => `
     <tr class="${row.is_active ? '' : 'paused'}">
-      <td>${row.description}</td>
-      <td>${row.category_name || 'Uncategorized'}</td>
-      <td>${row.frequency}</td>
-      <td class="amount-${row.type}">${row.type === 'expense' ? '-' : '+'}${money.format(row.amount)}</td>
-      <td>${row.next_run_date.slice(0, 10)}</td>
+      <td>${escapeHtml(row.description)}</td>
+      <td>${escapeHtml(row.category_name || 'Uncategorized')}</td>
+      <td>${escapeHtml(row.frequency)}</td>
+      <td class="amount-${escapeHtml(row.type)}">${row.type === 'expense' ? '-' : '+'}${escapeHtml(money.format(row.amount))}</td>
+      <td>${escapeHtml(row.next_run_date.slice(0, 10))}</td>
       <td>${row.is_active ? 'Active' : 'Paused'}</td>
       <td class="table-actions">
-        <button class="ghost" data-recurring-toggle="${row.id}">${row.is_active ? 'Pause' : 'Resume'}</button>
-        <button class="ghost" data-recurring-delete="${row.id}">Delete</button>
+        <button class="ghost" data-recurring-toggle="${escapeHtml(row.id)}">${row.is_active ? 'Pause' : 'Resume'}</button>
+        <button class="ghost" data-recurring-delete="${escapeHtml(row.id)}">Delete</button>
       </td>
     </tr>
   `).join('') : '<tr><td colspan="7" class="empty-state">No recurring transactions yet.</td></tr>';
@@ -263,8 +256,8 @@ async function loadBudgets() {
     const percent = limit ? Math.min((spent / limit) * 100, 100) : 0;
     return `
       <article class="budget-item ${spent > limit ? 'over' : percent >= 80 ? 'warning' : ''}">
-        <strong>${row.category_name}</strong>
-        <p>${money.format(spent)} spent of ${money.format(limit)} ${spent > limit ? ' - over budget' : percent >= 80 ? ' - near monthly limit' : ''}</p>
+        <strong>${escapeHtml(row.category_name)}</strong>
+        <p>${escapeHtml(money.format(spent))} spent of ${escapeHtml(money.format(limit))} ${spent > limit ? ' - over budget' : percent >= 80 ? ' - near monthly limit' : ''}</p>
         <div class="budget-line"><span style="width:${percent}%"></span></div>
       </article>
     `;
