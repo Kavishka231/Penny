@@ -1,11 +1,3 @@
-import {
-  authPayload,
-  budgetPayload,
-  profilePayload,
-  recurringPayload,
-  resetPasswordPayload,
-  transactionPayload
-} from './api-contract.js';
 import { escapeHtml } from './safe-html.js';
 
 const state = {
