@@ -72,4 +72,48 @@ router.get('/trends', async (req, res, next) => {
   }
 });
 
+router.get('/budget-progress', async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT c.name AS category,
+              c.color,
+              b.limit_amount,
+              COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) AS spent
+       FROM budgets b
+       JOIN categories c ON c.id = b.category_id
+       LEFT JOIN transactions t
+         ON t.category_id = b.category_id
+        AND t.user_id = b.user_id
+        AND date_trunc('month', t.transaction_date)::date = b.month
+       WHERE b.user_id = $1
+         AND b.month = date_trunc('month', CURRENT_DATE)::date
+       GROUP BY b.id, c.name, c.color, b.limit_amount
+       ORDER BY spent DESC`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/top-merchants', async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT merchant, SUM(amount) AS total
+       FROM transactions
+       WHERE user_id = $1
+         AND type = 'expense'
+         AND transaction_date >= date_trunc('month', CURRENT_DATE)
+       GROUP BY merchant
+       ORDER BY total DESC
+       LIMIT 6`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

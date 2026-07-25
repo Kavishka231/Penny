@@ -358,6 +358,20 @@ test('calculates current-month income, expenses, cash flow, and category spend',
   assert.ok(categorySpend.body.some((row) => Number(row.total) >= 85));
 });
 
+test('calculates budget progress and ranks current-month expense merchants', async () => {
+  const budgetProgress = await authenticated('get', '/api/analytics/budget-progress', primary.token);
+  assert.equal(budgetProgress.status, 200, budgetProgress.text);
+  assert.ok(budgetProgress.body.some((row) => (
+    Number(row.limit_amount) === 100 && Number(row.spent) >= 85
+  )), JSON.stringify(budgetProgress.body));
+
+  const topMerchants = await authenticated('get', '/api/analytics/top-merchants', primary.token);
+  assert.equal(topMerchants.status, 200, topMerchants.text);
+  assert.ok(topMerchants.body.some((row) => (
+    row.merchant === 'Budget test' && Number(row.total) >= 85
+  )), JSON.stringify(topMerchants.body));
+});
+
 test('rate limits repeated password-reset requests', async () => {
   let limitedResponse;
 
