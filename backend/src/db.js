@@ -66,8 +66,9 @@ export async function ensureDatabase() {
   await query("ALTER TABLE users ADD COLUMN IF NOT EXISTS theme_preference TEXT NOT NULL DEFAULT 'light'");
   await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS budget_reset_day INTEGER NOT NULL DEFAULT 1');
   await query("ALTER TABLE users ADD COLUMN IF NOT EXISTS date_format TEXT NOT NULL DEFAULT 'YYYY-MM-DD'");
-  await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_password_token TEXT');
+  await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_password_token_hash TEXT');
   await query('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_password_expires TIMESTAMPTZ');
+  await query('ALTER TABLE users DROP COLUMN IF EXISTS reset_password_token');
   await query('ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_source_check');
   await query("ALTER TABLE transactions ADD CONSTRAINT transactions_source_check CHECK (source IN ('manual', 'csv', 'recurring'))");
   await query(`

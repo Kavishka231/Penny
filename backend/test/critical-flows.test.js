@@ -1,16 +1,22 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'penny-tests-only-secret';
+process.env.PASSWORD_RESET_EXPOSE_TOKEN = 'true';
+process.env.PASSWORD_RESET_RATE_LIMIT_MAX = '8';
 
 let request;
 let app;
 let pool;
 let processDueRecurring;
 let buildBudgetAlert;
+let hashResetToken;
+let mayExposeResetToken;
 let primary;
 let secondary;
+let validResetToken;
 
 const currentDate = new Date().toISOString().slice(0, 10);
 const currentMonth = `${currentDate.slice(0, 7)}-01`;
@@ -34,6 +40,7 @@ before(async () => {
   ({ pool } = await import('../src/db.js'));
   ({ processDueRecurring } = await import('../src/services/recurringService.js'));
   ({ buildBudgetAlert } = await import('../src/routes/alerts.js'));
+  ({ hashResetToken, mayExposeResetToken } = await import('../src/services/passwordResetService.js'));
 });
 
 after(async () => {
@@ -81,7 +88,15 @@ test('prepares password resets without revealing whether unknown accounts exist'
     .post('/api/auth/forgot-password')
     .send({ email: 'primary@example.com' });
   assert.equal(existing.status, 200, existing.text);
-  assert.match(existing.body.resetToken, /^[a-f0-9]{48}$/);
+  assert.match(existing.body.resetToken, /^[a-f0-9]{64}$/);
+  validResetToken = existing.body.resetToken;
+
+  const stored = await pool.query(
+    'SELECT reset_password_token_hash FROM users WHERE id = $1',
+    [primary.user.id]
+  );
+  assert.equal(stored.rows[0].reset_password_token_hash, hashResetToken(validResetToken));
+  assert.notEqual(stored.rows[0].reset_password_token_hash, validResetToken);
 
   const unknown = await request(app)
     .post('/api/auth/forgot-password')
@@ -90,25 +105,91 @@ test('prepares password resets without revealing whether unknown accounts exist'
   assert.equal(unknown.body.resetToken, undefined);
 });
 
+test('never permits reset-token exposure in production', () => {
+  const previousEnvironment = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  assert.equal(mayExposeResetToken(), false);
+  process.env.NODE_ENV = previousEnvironment;
+});
+
+test('accepts a valid reset token once and updates the password', async () => {
+  const reset = await request(app)
+    .post('/api/auth/reset-password')
+    .send({ token: validResetToken, newPassword: 'NewStrongPass456!' });
+  assert.equal(reset.status, 200, reset.text);
+
+  const stored = await pool.query(
+    'SELECT reset_password_token_hash, reset_password_expires FROM users WHERE id = $1',
+    [primary.user.id]
+  );
+  assert.equal(stored.rows[0].reset_password_token_hash, null);
+  assert.equal(stored.rows[0].reset_password_expires, null);
+
+  const login = await request(app)
+    .post('/api/auth/login')
+    .send({ email: 'primary@example.com', password: 'NewStrongPass456!' });
+  assert.equal(login.status, 200, login.text);
+});
+
+test('rejects a reused reset token', async () => {
+  const reused = await request(app)
+    .post('/api/auth/reset-password')
+    .send({ token: validResetToken, newPassword: 'AnotherStrongPass789!' });
+  assert.equal(reused.status, 400);
+  assert.equal(reused.body.error, 'Reset token is invalid or expired');
+});
+
+test('rejects an expired reset token', async () => {
+  const requestReset = await request(app)
+    .post('/api/auth/forgot-password')
+    .send({ email: 'primary@example.com' });
+  assert.equal(requestReset.status, 200, requestReset.text);
+
+  await pool.query(
+    `UPDATE users
+     SET reset_password_expires = $2
+     WHERE id = $1`,
+    [primary.user.id, new Date(Date.now() - 60_000)]
+  );
+
+  const expired = await request(app)
+    .post('/api/auth/reset-password')
+    .send({ token: requestReset.body.resetToken, newPassword: 'ExpiredStrongPass123!' });
+  assert.equal(expired.status, 400);
+  assert.equal(expired.body.error, 'Reset token is invalid or expired');
+});
+
+test('rejects an invalid reset token', async () => {
+  const invalid = await request(app)
+    .post('/api/auth/reset-password')
+    .send({ token: crypto.randomBytes(32).toString('hex'), newPassword: 'InvalidStrongPass123!' });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.error, 'Reset token is invalid or expired');
+});
+
 test('creates, edits, reads, and deletes a transaction', async () => {
   const created = await authenticated('post', '/api/transactions', primary.token)
     .send({
       description: 'Initial merchant',
       amount: 42.5,
       type: 'expense',
-      date: currentDate
+      date: currentDate,
+      notes: 'Created through the browser contract'
     });
   assert.equal(created.status, 201, created.text);
+  assert.equal(created.body.notes, 'Created through the browser contract');
 
   const edited = await authenticated('put', `/api/transactions/${created.body.id}`, primary.token)
     .send({
       description: 'Edited merchant',
       amount: 50,
       type: 'expense',
-      date: currentDate
+      date: currentDate,
+      notes: 'Edited through the browser contract'
     });
   assert.equal(edited.status, 200, edited.text);
   assert.equal(edited.body.merchant, 'Edited merchant');
+  assert.equal(edited.body.notes, 'Edited through the browser contract');
 
   const list = await authenticated('get', '/api/transactions', primary.token);
   assert.equal(list.status, 200, list.text);
@@ -191,13 +272,15 @@ test('creates a budget and reports its near-limit warning', async () => {
 });
 
 test('processes a due recurring transaction exactly once per run date', async () => {
-  const recurring = await pool.query(
-    `INSERT INTO recurring_transactions
-      (user_id, description, amount, type, frequency, start_date, next_run_date)
-     VALUES ($1, 'Monthly rent', 700, 'expense', 'monthly', $2, $2)
-     RETURNING id`,
-    [primary.user.id, currentDate]
-  );
+  const recurring = await authenticated('post', '/api/recurring', primary.token)
+    .send({
+      description: 'Monthly rent',
+      amount: 700,
+      type: 'expense',
+      frequency: 'monthly',
+      start_date: currentDate
+    });
+  assert.equal(recurring.status, 201, recurring.text);
 
   const result = await processDueRecurring(primary.user.id);
   assert.equal(result.createdCount, 1);
@@ -214,9 +297,29 @@ test('processes a due recurring transaction exactly once per run date', async ()
 
   const schedule = await pool.query(
     'SELECT next_run_date FROM recurring_transactions WHERE id = $1',
-    [recurring.rows[0].id]
+    [recurring.body.id]
   );
   assert.notEqual(String(schedule.rows[0].next_run_date).slice(0, 10), currentDate);
+});
+
+test('updates profile settings using the browser contract', async () => {
+  const updated = await authenticated('put', '/api/profile', primary.token)
+    .send({
+      name: 'Updated Penny User',
+      email: 'updated-primary@example.com',
+      preferredCurrency: 'LKR',
+      themePreference: 'dark',
+      budgetResetDay: 5,
+      dateFormat: 'DD/MM/YYYY'
+    });
+
+  assert.equal(updated.status, 200, updated.text);
+  assert.equal(updated.body.name, 'Updated Penny User');
+  assert.equal(updated.body.email, 'updated-primary@example.com');
+  assert.equal(updated.body.preferred_currency, 'LKR');
+  assert.equal(updated.body.theme_preference, 'dark');
+  assert.equal(updated.body.budget_reset_day, 5);
+  assert.equal(updated.body.date_format, 'DD/MM/YYYY');
 });
 
 test('validates CSV imports and imports only usable rows', async () => {
@@ -253,4 +356,24 @@ test('calculates current-month income, expenses, cash flow, and category spend',
   const categorySpend = await authenticated('get', '/api/analytics/category-spend', primary.token);
   assert.equal(categorySpend.status, 200, categorySpend.text);
   assert.ok(categorySpend.body.some((row) => Number(row.total) >= 85));
+});
+
+test('rate limits repeated password-reset requests', async () => {
+  let limitedResponse;
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const response = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'rate-limit@example.com' });
+    if (response.status === 429) {
+      limitedResponse = response;
+      break;
+    }
+  }
+
+  assert.ok(limitedResponse, 'Expected password reset requests to be rate limited');
+  assert.equal(
+    limitedResponse.body.error,
+    'Too many password reset requests. Please try again later.'
+  );
 });
