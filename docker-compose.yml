@@ -21,6 +21,7 @@ services:
       PORT: 3000
       DATABASE_URL: postgres://penny:penny@postgres:5432/penny
       JWT_SECRET: change-me-in-production
+      PASSWORD_RESET_EXPOSE_TOKEN: "true"
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
     ports:
       - "3000:3000"

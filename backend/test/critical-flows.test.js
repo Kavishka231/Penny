@@ -173,19 +173,23 @@ test('creates, edits, reads, and deletes a transaction', async () => {
       description: 'Initial merchant',
       amount: 42.5,
       type: 'expense',
-      date: currentDate
+      date: currentDate,
+      notes: 'Created through the browser contract'
     });
   assert.equal(created.status, 201, created.text);
+  assert.equal(created.body.notes, 'Created through the browser contract');
 
   const edited = await authenticated('put', `/api/transactions/${created.body.id}`, primary.token)
     .send({
       description: 'Edited merchant',
       amount: 50,
       type: 'expense',
-      date: currentDate
+      date: currentDate,
+      notes: 'Edited through the browser contract'
     });
   assert.equal(edited.status, 200, edited.text);
   assert.equal(edited.body.merchant, 'Edited merchant');
+  assert.equal(edited.body.notes, 'Edited through the browser contract');
 
   const list = await authenticated('get', '/api/transactions', primary.token);
   assert.equal(list.status, 200, list.text);
@@ -268,13 +272,15 @@ test('creates a budget and reports its near-limit warning', async () => {
 });
 
 test('processes a due recurring transaction exactly once per run date', async () => {
-  const recurring = await pool.query(
-    `INSERT INTO recurring_transactions
-      (user_id, description, amount, type, frequency, start_date, next_run_date)
-     VALUES ($1, 'Monthly rent', 700, 'expense', 'monthly', $2, $2)
-     RETURNING id`,
-    [primary.user.id, currentDate]
-  );
+  const recurring = await authenticated('post', '/api/recurring', primary.token)
+    .send({
+      description: 'Monthly rent',
+      amount: 700,
+      type: 'expense',
+      frequency: 'monthly',
+      start_date: currentDate
+    });
+  assert.equal(recurring.status, 201, recurring.text);
 
   const result = await processDueRecurring(primary.user.id);
   assert.equal(result.createdCount, 1);
@@ -291,9 +297,29 @@ test('processes a due recurring transaction exactly once per run date', async ()
 
   const schedule = await pool.query(
     'SELECT next_run_date FROM recurring_transactions WHERE id = $1',
-    [recurring.rows[0].id]
+    [recurring.body.id]
   );
   assert.notEqual(String(schedule.rows[0].next_run_date).slice(0, 10), currentDate);
+});
+
+test('updates profile settings using the browser contract', async () => {
+  const updated = await authenticated('put', '/api/profile', primary.token)
+    .send({
+      name: 'Updated Penny User',
+      email: 'updated-primary@example.com',
+      preferredCurrency: 'LKR',
+      themePreference: 'dark',
+      budgetResetDay: 5,
+      dateFormat: 'DD/MM/YYYY'
+    });
+
+  assert.equal(updated.status, 200, updated.text);
+  assert.equal(updated.body.name, 'Updated Penny User');
+  assert.equal(updated.body.email, 'updated-primary@example.com');
+  assert.equal(updated.body.preferred_currency, 'LKR');
+  assert.equal(updated.body.theme_preference, 'dark');
+  assert.equal(updated.body.budget_reset_day, 5);
+  assert.equal(updated.body.date_format, 'DD/MM/YYYY');
 });
 
 test('validates CSV imports and imports only usable rows', async () => {

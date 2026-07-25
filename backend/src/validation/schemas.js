@@ -72,6 +72,7 @@ export const transactionCreateSchema = z.object({
 	date: isoDateString.refine((value) => new Date(value) <= new Date(), {
 		message: 'Date cannot be in the future',
 	}),
+	notes: z.string().optional(),
 }).strict();
 
 export const transactionUpdateSchema = transactionCreateSchema.partial();

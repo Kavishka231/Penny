@@ -1,3 +1,12 @@
+import {
+  authPayload,
+  budgetPayload,
+  profilePayload,
+  recurringPayload,
+  resetPasswordPayload,
+  transactionPayload
+} from './api-contract.js';
+
 const state = {
   token: localStorage.getItem('penny_token'),
   user: JSON.parse(localStorage.getItem('penny_user') || 'null'),
@@ -274,7 +283,7 @@ document.querySelector('#auth-form').addEventListener('submit', async (event) =>
   const stopLoading = setLoading(event.submitter, event.submitter.dataset.mode === 'login' ? 'Logging in...' : 'Creating...');
   const mode = event.submitter.dataset.mode;
   const form = event.currentTarget;
-  const data = Object.fromEntries(new FormData(form));
+  const data = authPayload(new FormData(form), mode);
   document.querySelector('#auth-error').textContent = '';
   if (!validateRequired(form, ['email', 'password'])) {
     stopLoading();
@@ -311,10 +320,10 @@ document.querySelector('#reset-password-btn').addEventListener('click', async (e
   try {
     await api('/auth/reset-password', {
       method: 'POST',
-      body: JSON.stringify({
-        token: document.querySelector('#reset-token').value,
-        password: document.querySelector('#reset-new-password').value
-      })
+      body: JSON.stringify(resetPasswordPayload(
+        document.querySelector('#reset-token').value,
+        document.querySelector('#reset-new-password').value
+      ))
     });
     document.querySelector('#reset-email').value = '';
     document.querySelector('#reset-token').value = '';
@@ -345,7 +354,7 @@ document.querySelector('#recurring-form').addEventListener('submit', async (even
   event.preventDefault();
   const form = event.currentTarget;
   const stopLoading = setLoading(event.submitter, 'Saving...');
-  const data = Object.fromEntries(new FormData(form));
+  const data = recurringPayload(new FormData(form));
   const result = document.querySelector('#recurring-result');
   result.classList.remove('error');
   result.textContent = '';
@@ -400,9 +409,8 @@ document.querySelector('#transaction-form').addEventListener('submit', async (ev
     stopLoading();
     return;
   }
-  const data = Object.fromEntries(new FormData(form));
-  const id = data.id;
-  delete data.id;
+  const id = form.elements.id.value;
+  const data = transactionPayload(new FormData(form));
   try {
     await api(editing ? `/transactions/${id}` : '/transactions', {
       method: editing ? 'PUT' : 'POST',
@@ -492,7 +500,7 @@ document.querySelector('#budget-form').addEventListener('submit', async (event) 
     return;
   }
   try {
-    const data = Object.fromEntries(new FormData(form));
+    const data = budgetPayload(new FormData(form));
     await api('/budgets', { method: 'POST', body: JSON.stringify(data) });
     await loadBudgets();
     await loadDashboard();
@@ -582,8 +590,7 @@ document.querySelector('#profile-form').addEventListener('submit', async (event)
   event.preventDefault();
   const form = event.currentTarget;
   const stopLoading = setLoading(event.submitter, 'Saving...');
-  const data = Object.fromEntries(new FormData(form));
-  if (!data.password) delete data.password;
+  const data = profilePayload(new FormData(form));
   const result = document.querySelector('#profile-result');
   result.classList.remove('error');
   result.textContent = '';
