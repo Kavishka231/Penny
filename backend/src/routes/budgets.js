@@ -3,6 +3,7 @@ import { query } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import validate, { validateQuery } from '../middleware/validate.js';
 import { budgetQuerySchema, budgetSchema } from '../validation/schemas.js';
+import { userOwnsCategory } from '../lib/categoryOwnership.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -18,7 +19,7 @@ router.get('/', validateQuery(budgetQuerySchema), async (req, res, next) => {
       query(
       `SELECT b.*, c.name AS category_name, c.color AS category_color
        FROM budgets b
-       JOIN categories c ON c.id = b.category_id
+       JOIN categories c ON c.id = b.category_id AND c.user_id = b.user_id
        WHERE b.user_id = $1 AND b.month = $2
        ORDER BY c.name`,
       [req.user.id, month]
@@ -58,6 +59,9 @@ router.post('/', validate(budgetSchema), async (req, res, next) => {
     } = req.body;
     if (!categoryId || !month || limitAmount === undefined) {
       return res.status(400).json({ error: 'Category, month and limit are required' });
+    }
+    if (!(await userOwnsCategory(categoryId, req.user.id))) {
+      return res.status(400).json({ error: 'Category does not belong to this user' });
     }
 
     const result = await query(

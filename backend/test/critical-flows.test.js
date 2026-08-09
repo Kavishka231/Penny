@@ -244,6 +244,101 @@ test('prevents one user from reading, editing, or deleting another user transact
   assert.ok(ownerList.body.some((transaction) => transaction.id === created.body.id));
 });
 
+test('rejects cross-user categories across transactions, budgets, and recurring data', async () => {
+  const primaryCategories = await authenticated('get', '/api/categories', primary.token);
+  const secondaryCategories = await authenticated('get', '/api/categories', secondary.token);
+  const primaryCategory = primaryCategories.body.find((category) => category.type === 'expense');
+  const secondaryCategory = secondaryCategories.body.find((category) => category.type === 'expense');
+
+  const createTransaction = await authenticated('post', '/api/transactions', primary.token)
+    .send({
+      description: 'Unauthorized category transaction',
+      amount: 10,
+      type: 'expense',
+      category_id: secondaryCategory.id,
+      date: currentDate
+    });
+  assert.equal(createTransaction.status, 400, createTransaction.text);
+
+  const ownTransaction = await authenticated('post', '/api/transactions', primary.token)
+    .send({
+      description: 'Owned transaction',
+      amount: 10,
+      type: 'expense',
+      category_id: primaryCategory.id,
+      date: currentDate
+    });
+  assert.equal(ownTransaction.status, 201, ownTransaction.text);
+
+  const updateTransaction = await authenticated(
+    'put',
+    `/api/transactions/${ownTransaction.body.id}`,
+    primary.token
+  ).send({
+    description: 'Unauthorized update',
+    amount: 10,
+    type: 'expense',
+    category_id: secondaryCategory.id,
+    date: currentDate
+  });
+  assert.equal(updateTransaction.status, 400, updateTransaction.text);
+
+  const createBudget = await authenticated('post', '/api/budgets', primary.token)
+    .send({ category_id: secondaryCategory.id, monthly_limit: 100, month: currentMonth });
+  assert.equal(createBudget.status, 400, createBudget.text);
+
+  const createRecurring = await authenticated('post', '/api/recurring', primary.token)
+    .send({
+      description: 'Unauthorized recurring category',
+      amount: 10,
+      type: 'expense',
+      category_id: secondaryCategory.id,
+      frequency: 'monthly',
+      start_date: currentDate
+    });
+  assert.equal(createRecurring.status, 400, createRecurring.text);
+
+  const ownRecurring = await authenticated('post', '/api/recurring', primary.token)
+    .send({
+      description: 'Owned recurring category',
+      amount: 10,
+      type: 'expense',
+      category_id: primaryCategory.id,
+      frequency: 'monthly',
+      start_date: currentDate
+    });
+  assert.equal(ownRecurring.status, 201, ownRecurring.text);
+
+  const updateRecurring = await authenticated(
+    'put',
+    `/api/recurring/${ownRecurring.body.id}`,
+    primary.token
+  ).send({ category_id: secondaryCategory.id });
+  assert.equal(updateRecurring.status, 400, updateRecurring.text);
+
+  await assert.rejects(
+    pool.query(
+      `INSERT INTO transactions (user_id, category_id, type, merchant, amount, transaction_date)
+       VALUES ($1, $2, 'expense', 'Database ownership check', 10, $3)`,
+      [primary.user.id, secondaryCategory.id, currentDate]
+    )
+  );
+
+  const deleteTransaction = await authenticated(
+    'delete',
+    `/api/transactions/${ownTransaction.body.id}`,
+    primary.token
+  );
+  assert.equal(deleteTransaction.status, 204, deleteTransaction.text);
+
+  const deleteRecurring = await authenticated(
+    'delete',
+    `/api/recurring/${ownRecurring.body.id}`,
+    primary.token
+  );
+  assert.equal(deleteRecurring.status, 204, deleteRecurring.text);
+});
+
 test('creates a budget and reports its near-limit warning', async () => {
   const categoryResult = await pool.query(
     `SELECT id FROM categories

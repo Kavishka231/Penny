@@ -75,6 +75,16 @@ export async function processDueRecurring(userId = null) {
         continue;
       }
 
+      if (recurring.category_id) {
+        const category = await client.query(
+          'SELECT id FROM categories WHERE id = $1 AND user_id = $2',
+          [recurring.category_id, recurring.user_id]
+        );
+        if (!category.rowCount) {
+          throw new Error('Recurring transaction category does not belong to its user');
+        }
+      }
+
       const currentRunDate = toDateString(recurring.next_run_date);
       const nextRunDate = getNextRunDate(currentRunDate, recurring.frequency);
       const shouldDeactivate = recurring.end_date && nextRunDate > toDateString(recurring.end_date);

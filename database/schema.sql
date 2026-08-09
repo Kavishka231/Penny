@@ -24,13 +24,14 @@ CREATE TABLE IF NOT EXISTS categories (
   color TEXT NOT NULL DEFAULT '#3b82f6',
   is_default BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, name, type)
+  UNIQUE (user_id, name, type),
+  UNIQUE (id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+  category_id UUID,
   type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
   merchant TEXT NOT NULL,
   amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
@@ -38,24 +39,26 @@ CREATE TABLE IF NOT EXISTS transactions (
   notes TEXT,
   source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'csv', 'recurring')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (category_id, user_id) REFERENCES categories(id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS budgets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  category_id UUID NOT NULL,
   month DATE NOT NULL,
   limit_amount NUMERIC(12, 2) NOT NULL CHECK (limit_amount >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, category_id, month)
+  UNIQUE (user_id, category_id, month),
+  FOREIGN KEY (category_id, user_id) REFERENCES categories(id, user_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS recurring_transactions (
   id SERIAL PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  category_id UUID REFERENCES categories(id),
+  category_id UUID,
   description VARCHAR(255) NOT NULL,
   amount NUMERIC(12,2) NOT NULL CHECK (amount > 0),
   type VARCHAR(10) NOT NULL CHECK (type IN ('income', 'expense')),
@@ -64,7 +67,8 @@ CREATE TABLE IF NOT EXISTS recurring_transactions (
   next_run_date DATE NOT NULL,
   end_date DATE,
   is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  FOREIGN KEY (category_id, user_id) REFERENCES categories(id, user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, transaction_date DESC);

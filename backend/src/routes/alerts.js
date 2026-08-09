@@ -40,7 +40,7 @@ router.get('/', validateQuery(alertsQuerySchema), async (req, res, next) => {
               c.name AS category_name,
               b.limit_amount
        FROM budgets b
-       JOIN categories c ON c.id = b.category_id
+       JOIN categories c ON c.id = b.category_id AND c.user_id = b.user_id
        WHERE b.user_id = $1 AND b.month = $2
          AND b.limit_amount > 0`,
       [req.user.id, month]

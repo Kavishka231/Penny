@@ -7,6 +7,7 @@ import {
   transactionQuerySchema,
   transactionUpdateSchema,
 } from '../validation/schemas.js';
+import { userOwnsCategory } from '../lib/categoryOwnership.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -43,7 +44,7 @@ router.get('/', validateQuery(transactionQuerySchema), async (req, res, next) =>
     const result = await query(
       `SELECT t.*, c.name AS category_name, c.color AS category_color
        FROM transactions t
-       LEFT JOIN categories c ON c.id = t.category_id
+       LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
        WHERE ${clauses.join(' AND ')}
        ORDER BY t.transaction_date DESC, t.created_at DESC
        LIMIT 250`,
@@ -69,6 +70,9 @@ router.post('/', validate(transactionCreateSchema), async (req, res, next) => {
     if (!['income', 'expense'].includes(type) || !merchant || !amount || !transactionDate) {
       return res.status(400).json({ error: 'Type, merchant, amount and date are required' });
     }
+    if (!(await userOwnsCategory(categoryId, req.user.id))) {
+      return res.status(400).json({ error: 'Category does not belong to this user' });
+    }
 
     const result = await query(
       `INSERT INTO transactions (user_id, category_id, type, merchant, amount, transaction_date, notes, source)
@@ -92,6 +96,9 @@ router.put('/:id', validate(transactionUpdateSchema), async (req, res, next) => 
       date: transactionDate,
       notes,
     } = req.body;
+    if (!(await userOwnsCategory(categoryId, req.user.id))) {
+      return res.status(400).json({ error: 'Category does not belong to this user' });
+    }
     const result = await query(
       `UPDATE transactions
        SET type = $3, category_id = $4, merchant = $5, amount = $6, transaction_date = $7, notes = $8, updated_at = now()

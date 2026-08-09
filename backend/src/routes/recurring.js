@@ -6,6 +6,7 @@ import {
   recurringTransactionSchema,
   recurringTransactionUpdateSchema,
 } from '../validation/schemas.js';
+import { userOwnsCategory } from '../lib/categoryOwnership.js';
 
 const router = express.Router();
 
@@ -16,7 +17,7 @@ function normalizePayload(body) {
     description: body.description?.trim(),
     amount: body.amount,
     type: body.type,
-    categoryId: body.categoryId || body.category_id || null,
+    categoryId: Object.hasOwn(body, 'categoryId') ? body.categoryId : undefined,
     frequency: body.frequency,
     startDate: body.startDate || body.start_date,
     endDate: body.endDate || body.end_date || null,
@@ -38,7 +39,7 @@ router.get('/', async (req, res, next) => {
     const result = await query(
       `SELECT r.*, c.name AS category_name, c.color AS category_color
        FROM recurring_transactions r
-       LEFT JOIN categories c ON c.id = r.category_id
+       LEFT JOIN categories c ON c.id = r.category_id AND c.user_id = r.user_id
        WHERE r.user_id = $1
        ORDER BY r.next_run_date ASC, r.created_at DESC`,
       [req.user.id]
@@ -67,6 +68,9 @@ router.post('/', validate(recurringTransactionSchema), async (req, res, next) =>
     if (payload.endDate && payload.endDate < payload.startDate) {
       return res.status(400).json({ error: 'End date must be on or after the start date' });
     }
+    if (!(await userOwnsCategory(payload.categoryId, req.user.id))) {
+      return res.status(400).json({ error: 'Category does not belong to this user' });
+    }
 
     const result = await query(
       `INSERT INTO recurring_transactions
@@ -75,7 +79,7 @@ router.post('/', validate(recurringTransactionSchema), async (req, res, next) =>
        RETURNING *`,
       [
         req.user.id,
-        payload.categoryId,
+        payload.categoryId || null,
         payload.description,
         payload.amount,
         payload.type,
@@ -94,6 +98,9 @@ router.post('/', validate(recurringTransactionSchema), async (req, res, next) =>
 router.put('/:id', validate(recurringTransactionUpdateSchema), async (req, res, next) => {
   try {
     const payload = normalizePayload(mapRecurringSchemaBody(req.body));
+    if (!(await userOwnsCategory(payload.categoryId, req.user.id))) {
+      return res.status(400).json({ error: 'Category does not belong to this user' });
+    }
     const fields = [];
     const values = [req.params.id, req.user.id];
 

@@ -34,7 +34,7 @@ router.get('/category-spend', async (req, res, next) => {
     const result = await query(
       `SELECT COALESCE(c.name, 'Uncategorized') AS category, COALESCE(c.color, '#64748b') AS color, SUM(t.amount) AS total
        FROM transactions t
-       LEFT JOIN categories c ON c.id = t.category_id
+       LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
        WHERE t.user_id = $1
          AND t.type = 'expense'
          AND t.transaction_date >= date_trunc('month', CURRENT_DATE)
@@ -93,7 +93,7 @@ router.get('/budget-progress', async (req, res, next) => {
               b.limit_amount,
               COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'expense'), 0) AS spent
        FROM budgets b
-       JOIN categories c ON c.id = b.category_id
+       JOIN categories c ON c.id = b.category_id AND c.user_id = b.user_id
        LEFT JOIN transactions t
          ON t.category_id = b.category_id
         AND t.user_id = b.user_id
