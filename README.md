@@ -57,6 +57,11 @@ The Compose configuration requires database, JWT, public URL, trusted-origin,
 and SMTP values instead of shipping deployment credentials. The API serves the
 frontend from the same production image.
 
+Authenticated sessions use a 15-minute access cookie and a database-backed,
+rotating refresh credential with a fixed 14-day lifetime. Logout and password
+resets revoke server-side sessions immediately; refresh credentials are stored
+only as SHA-256 hashes.
+
 ## CSV Import Format
 
 The importer accepts CSV files with these common columns:

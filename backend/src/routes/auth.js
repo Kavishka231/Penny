@@ -1,11 +1,9 @@
 import express from 'express';
-import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { rateLimit } from 'express-rate-limit';
 import { query, withTransaction } from '../db.js';
 import { defaultCategories } from '../lib/defaultCategories.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, trustedRequestOrigin } from '../middleware/auth.js';
 import validate from '../middleware/validate.js';
 import { processDueRecurring } from '../services/recurringService.js';
 import {
@@ -22,7 +20,16 @@ import {
   registerSchema,
   resetPasswordSchema,
 } from '../validation/schemas.js';
-import { clearSessionCookie, setSessionCookie } from '../lib/sessionCookie.js';
+import {
+  clearSessionCookies,
+  readRefreshCookie,
+  setSessionCookies,
+} from '../lib/sessionCookie.js';
+import {
+  createSession,
+  revokeSession,
+  rotateSession,
+} from '../services/sessionService.js';
 
 const router = express.Router();
 const resetRequestLimiter = rateLimit({
@@ -34,13 +41,10 @@ const resetRequestLimiter = rateLimit({
 });
 const resetResponseMessage = 'If that account exists, a reset link has been prepared.';
 
-function signToken(user) {
-  const csrf = crypto.randomBytes(32).toString('hex');
-  return jwt.sign(
-    { id: user.id, email: user.email, name: user.name, csrf },
-    process.env.JWT_SECRET,
-    { expiresIn: '7d', algorithm: 'HS256', issuer: 'penny', audience: 'penny-web' }
-  );
+async function sendSession(res, user, status = 200) {
+  const session = await createSession(user);
+  setSessionCookies(res, session.accessToken, session.refreshToken);
+  return res.status(status).json({ user, csrfToken: session.csrfToken });
 }
 
 router.post('/register', validate(registerSchema), async (req, res, next) => {
@@ -67,9 +71,7 @@ router.post('/register', validate(registerSchema), async (req, res, next) => {
       return created.rows[0];
     });
 
-    const token = signToken(user);
-    setSessionCookie(res, token);
-    res.status(201).json({ user, csrfToken: jwt.decode(token).csrf });
+    await sendSession(res, user, 201);
   } catch (error) {
     if (error.code === '23505') {
       return res.status(409).json({ error: 'An account already exists for that email' });
@@ -97,12 +99,7 @@ router.post('/login', validate(loginSchema), async (req, res, next) => {
       console.error('Failed to process recurring transactions during login', error);
     }
 
-    const token = signToken(user);
-    setSessionCookie(res, token);
-    res.json({
-      user: { id: user.id, name: user.name, email: user.email },
-      csrfToken: jwt.decode(token).csrf
-    });
+    await sendSession(res, { id: user.id, name: user.name, email: user.email });
   } catch (error) {
     next(error);
   }
@@ -177,6 +174,12 @@ router.post('/reset-password', validate(resetPasswordSchema), async (req, res, n
       return res.status(400).json({ error: 'Reset token is invalid or expired' });
     }
 
+    await query(
+      'UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
+      [result.rows[0].id]
+    );
+    clearSessionCookies(res);
+
     res.json({ message: 'Password reset successfully. You can log in now.' });
   } catch (error) {
     next(error);
@@ -190,8 +193,30 @@ router.get('/me', requireAuth, async (req, res) => {
   });
 });
 
-router.post('/logout', requireAuth, (_req, res) => {
-  clearSessionCookie(res);
+router.post('/refresh', async (req, res, next) => {
+  try {
+    if (!trustedRequestOrigin(req)) {
+      return res.status(403).json({ error: 'Request origin is not allowed' });
+    }
+    const session = await rotateSession(readRefreshCookie(req));
+    if (!session) {
+      clearSessionCookies(res);
+      return res.status(401).json({ error: 'Refresh session is invalid or expired' });
+    }
+    setSessionCookies(res, session.accessToken, session.refreshToken);
+    res.json({ user: session.user, csrfToken: session.csrfToken });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/logout', requireAuth, async (req, res, next) => {
+  try {
+    await revokeSession(req.user.sid, req.user.id);
+  } catch (error) {
+    return next(error);
+  }
+  clearSessionCookies(res);
   res.status(204).end();
 });
 

@@ -208,7 +208,7 @@ test('supports mobile application navigation and landing-page links', { timeout:
   const failedResponses = [];
   mobilePage.on('response', (response) => {
     const expectedAnonymousSessionCheck = response.status() === 401
-      && response.url().endsWith('/api/auth/me');
+      && ['/api/auth/me', '/api/auth/refresh'].some((path) => response.url().endsWith(path));
     if (response.status() >= 400
         && !response.url().endsWith('/favicon.ico')
         && !expectedAnonymousSessionCheck) {

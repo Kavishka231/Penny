@@ -68,6 +68,13 @@ async function updateProfile(req, res, next) {
       values
     );
     if (!result.rowCount) return res.status(404).json({ error: 'Profile not found' });
+    if (Object.hasOwn(updates, 'password')) {
+      await query(
+        `UPDATE auth_sessions SET revoked_at = now()
+         WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL`,
+        [req.user.id, req.user.sid]
+      );
+    }
     res.json(result.rows[0]);
   } catch (error) {
     if (error.code === '23505') {

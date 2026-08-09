@@ -110,7 +110,18 @@ async function api(path, options = {}) {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && state.csrfToken) {
     headers['X-CSRF-Token'] = state.csrfToken;
   }
-  const response = await fetch(`/api${path}`, { ...options, headers, credentials: 'include' });
+  let response = await fetch(`/api${path}`, { ...options, headers, credentials: 'include' });
+  const cannotRefresh = ['/auth/login', '/auth/register', '/auth/forgot-password',
+    '/auth/reset-password', '/auth/refresh'].includes(path);
+  if (response.status === 401 && !cannotRefresh) {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+        headers['X-CSRF-Token'] = state.csrfToken;
+      }
+      response = await fetch(`/api${path}`, { ...options, headers, credentials: 'include' });
+    }
+  }
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.error || 'Request failed');
@@ -125,6 +136,20 @@ function setSession(payload) {
   state.csrfToken = payload.csrfToken;
   renderShell();
   loadAll();
+}
+
+async function refreshSession() {
+  const response = await fetch('/api/auth/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include'
+  });
+  if (!response.ok) return false;
+  const payload = await response.json();
+  state.authenticated = true;
+  state.user = payload.user;
+  state.csrfToken = payload.csrfToken;
+  return true;
 }
 
 function renderShell() {

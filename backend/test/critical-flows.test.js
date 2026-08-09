@@ -20,6 +20,17 @@ let secondary;
 let validResetToken;
 const csrfByCookie = new Map();
 
+function sessionFromResponse(response) {
+  const cookies = response.headers['set-cookie'] || [];
+  const cookie = cookies.find((value) => value.startsWith('penny_session='))?.split(';')[0];
+  const refreshCookie = cookies.find((value) => value.startsWith('penny_refresh='))?.split(';')[0];
+  assert.ok(cookie, 'Response must set an access cookie');
+  assert.ok(refreshCookie, 'Response must set a refresh cookie');
+  assert.match(response.body.csrfToken, /^[a-f0-9]{64}$/);
+  csrfByCookie.set(cookie, response.body.csrfToken);
+  return { cookie, refreshCookie };
+}
+
 const currentDate = new Date().toISOString().slice(0, 10);
 const currentMonth = `${currentDate.slice(0, 7)}-01`;
 
@@ -29,11 +40,7 @@ async function register(name, email) {
     .send({ name, email, password: 'StrongPass123!' });
 
   assert.equal(response.status, 201, response.text);
-  const cookie = response.headers['set-cookie']?.[0]?.split(';')[0];
-  assert.ok(cookie, 'Registration must set a session cookie');
-  assert.match(response.body.csrfToken, /^[a-f0-9]{64}$/);
-  csrfByCookie.set(cookie, response.body.csrfToken);
-  return { ...response.body, cookie };
+  return { ...response.body, ...sessionFromResponse(response) };
 }
 
 function authenticated(method, path, cookie) {
@@ -102,6 +109,11 @@ test('logs in with valid credentials and rejects an invalid login', async () => 
   assert.match(sessionHeader, /HttpOnly/i);
   assert.match(sessionHeader, /SameSite=Strict/i);
   assert.match(valid.body.csrfToken, /^[a-f0-9]{64}$/);
+  assert.match(sessionHeader, /Max-Age=900/i);
+  const refreshHeader = valid.headers['set-cookie']
+    .find((value) => value.startsWith('penny_refresh='));
+  assert.match(refreshHeader, /Path=\/api\/auth/i);
+  assert.match(refreshHeader, /Max-Age=1209600/i);
   assert.doesNotMatch(sessionHeader, /; Secure/i);
 
   const previousEnvironment = process.env.NODE_ENV;
@@ -117,6 +129,26 @@ test('logs in with valid credentials and rejects an invalid login', async () => 
     .send({ email: 'primary@example.com', password: 'not-the-password' });
   assert.equal(invalid.status, 401);
   assert.equal(invalid.body.error, 'Invalid email or password');
+});
+
+test('rotates refresh credentials and rejects replay of the previous credential', async () => {
+  const previousRefreshCookie = primary.refreshCookie;
+  const refreshed = await request(app)
+    .post('/api/auth/refresh')
+    .set('Cookie', previousRefreshCookie)
+    .set('Origin', 'https://trusted.penny.test');
+  assert.equal(refreshed.status, 200, refreshed.text);
+  Object.assign(primary, sessionFromResponse(refreshed));
+  assert.notEqual(primary.refreshCookie, previousRefreshCookie);
+
+  const replay = await request(app)
+    .post('/api/auth/refresh')
+    .set('Cookie', previousRefreshCookie)
+    .set('Origin', 'https://trusted.penny.test');
+  assert.equal(replay.status, 401, replay.text);
+
+  const active = await authenticated('get', '/api/auth/me', primary.cookie);
+  assert.equal(active.status, 200, active.text);
 });
 
 test('rejects authenticated mutations without a valid CSRF token and trusted origin', async () => {
@@ -160,6 +192,7 @@ test('rejects authenticated mutations without a valid CSRF token and trusted ori
 });
 
 test('clears the authentication cookie on logout', async () => {
+  const accessBeforeLogout = primary.cookie;
   const authenticatedResponse = await authenticated('get', '/api/auth/me', primary.cookie);
   assert.equal(authenticatedResponse.status, 200);
 
@@ -171,6 +204,9 @@ test('clears the authentication cookie on logout', async () => {
   const afterLogout = await authenticated('get', '/api/auth/me', clearedCookie);
   assert.equal(afterLogout.status, 401);
   assert.equal(afterLogout.body.error, 'Authentication required');
+
+  const revokedAccess = await authenticated('get', '/api/auth/me', accessBeforeLogout);
+  assert.equal(revokedAccess.status, 401);
 });
 
 test('prepares password resets without revealing whether unknown accounts exist', async () => {
@@ -203,6 +239,12 @@ test('never permits reset-token exposure in production', () => {
 });
 
 test('accepts a valid reset token once and updates the password', async () => {
+  const sessionBeforeReset = await request(app)
+    .post('/api/auth/login')
+    .send({ email: 'primary@example.com', password: 'StrongPass123!' });
+  assert.equal(sessionBeforeReset.status, 200, sessionBeforeReset.text);
+  const staleAccessCookie = sessionFromResponse(sessionBeforeReset).cookie;
+
   const reset = await request(app)
     .post('/api/auth/reset-password')
     .send({ token: validResetToken, newPassword: 'NewStrongPass456!' });
@@ -215,10 +257,14 @@ test('accepts a valid reset token once and updates the password', async () => {
   assert.equal(stored.rows[0].reset_password_token_hash, null);
   assert.equal(stored.rows[0].reset_password_expires, null);
 
+  const revokedSession = await authenticated('get', '/api/auth/me', staleAccessCookie);
+  assert.equal(revokedSession.status, 401);
+
   const login = await request(app)
     .post('/api/auth/login')
     .send({ email: 'primary@example.com', password: 'NewStrongPass456!' });
   assert.equal(login.status, 200, login.text);
+  Object.assign(primary, sessionFromResponse(login));
 });
 
 test('rejects a reused reset token', async () => {
