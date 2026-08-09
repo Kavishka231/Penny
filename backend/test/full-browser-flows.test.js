@@ -116,6 +116,11 @@ test('uses the real API for critical authenticated finance flows', { timeout: 90
 
   await page.goto(`${baseUrl}/app.html`);
   await register('Browser Owner', ownerEmail);
+  assert.equal(await page.evaluate(() => localStorage.getItem('penny_token')), null);
+  assert.equal(await page.evaluate(() => document.cookie.includes('penny_session=')), false);
+  const sessionCookie = (await context.cookies()).find((cookie) => cookie.name === 'penny_session');
+  assert.equal(sessionCookie?.httpOnly, true);
+  assert.equal(sessionCookie?.sameSite, 'Strict');
 
   const expenseCategoryId = await page.locator('#transaction-category option')
     .filter({ hasNotText: 'Uncategorized' })
@@ -202,7 +207,11 @@ test('supports mobile application navigation and landing-page links', { timeout:
   const mobilePage = await mobileContext.newPage();
   const failedResponses = [];
   mobilePage.on('response', (response) => {
-    if (response.status() >= 400 && !response.url().endsWith('/favicon.ico')) {
+    const expectedAnonymousSessionCheck = response.status() === 401
+      && response.url().endsWith('/api/auth/me');
+    if (response.status() >= 400
+        && !response.url().endsWith('/favicon.ico')
+        && !expectedAnonymousSessionCheck) {
       failedResponses.push(`${response.status()} ${response.url()}`);
     }
   });

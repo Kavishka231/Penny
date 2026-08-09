@@ -4,7 +4,7 @@ Penny is a full-stack personal finance intelligence platform for tracking income
 
 ## Features
 
-- JWT authentication with per-user financial data isolation.
+- HttpOnly cookie authentication with per-user financial data isolation.
 - Transaction ledger for income and expenses with search, category labels and CSV export.
 - Transaction editing and amount/date/type/category filters.
 - Default and custom categories stored in PostgreSQL.
@@ -21,7 +21,7 @@ Penny is a full-stack personal finance intelligence platform for tracking income
 - Backend: Node.js, Express.js, PostgreSQL
 - Frontend: HTML, CSS, vanilla JavaScript, Chart.js
 - Charts: Chart.js
-- Authentication: JWT
+- Authentication: JWT stored only in an HttpOnly, SameSite session cookie
 - Infrastructure: Docker and Docker Compose
 
 ## Production Start
@@ -72,6 +72,7 @@ Negative amounts are treated as expenses. Positive amounts default to income unl
 
 - `POST /api/auth/register`
 - `POST /api/auth/login`
+- `POST /api/auth/logout`
 - `POST /api/auth/forgot-password`
 - `POST /api/auth/reset-password`
 - `GET /api/categories`

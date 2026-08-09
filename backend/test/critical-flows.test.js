@@ -28,11 +28,13 @@ async function register(name, email) {
     .send({ name, email, password: 'StrongPass123!' });
 
   assert.equal(response.status, 201, response.text);
-  return response.body;
+  const cookie = response.headers['set-cookie']?.[0]?.split(';')[0];
+  assert.ok(cookie, 'Registration must set a session cookie');
+  return { ...response.body, cookie };
 }
 
-function authenticated(method, path, token) {
-  return request(app)[method](path).set('Authorization', `Bearer ${token}`);
+function authenticated(method, path, cookie) {
+  return request(app)[method](path).set('Cookie', cookie);
 }
 
 before(async () => {
@@ -52,10 +54,10 @@ test('registers users and creates isolated default categories', async () => {
   primary = await register('Primary User', 'primary@example.com');
   secondary = await register('Secondary User', 'secondary@example.com');
 
-  assert.ok(primary.token);
+  assert.ok(primary.cookie);
   assert.notEqual(primary.user.id, secondary.user.id);
 
-  const categories = await authenticated('get', '/api/categories', primary.token);
+  const categories = await authenticated('get', '/api/categories', primary.cookie);
   assert.equal(categories.status, 200, categories.text);
   assert.ok(categories.body.length > 0);
   assert.ok(categories.body.every((category) => category.user_id === primary.user.id));
@@ -73,6 +75,11 @@ test('reports database health and applies browser security policy', async () => 
     .set('Origin', 'https://untrusted.example.com');
   assert.equal(rejectedOrigin.status, 403, rejectedOrigin.text);
   assert.equal(rejectedOrigin.body.error, 'Origin is not allowed by CORS');
+
+  const trustedOrigin = await request(app)
+    .get('/api/health')
+    .set('Origin', 'https://trusted.penny.test');
+  assert.equal(trustedOrigin.headers['access-control-allow-credentials'], 'true');
 });
 
 test('logs in with valid credentials and rejects an invalid login', async () => {
@@ -80,7 +87,20 @@ test('logs in with valid credentials and rejects an invalid login', async () => 
     .post('/api/auth/login')
     .send({ email: 'PRIMARY@example.com', password: 'StrongPass123!' });
   assert.equal(valid.status, 200, valid.text);
-  assert.ok(valid.body.token);
+  assert.equal(valid.body.token, undefined);
+  const sessionHeader = valid.headers['set-cookie']?.[0];
+  assert.match(sessionHeader, /^penny_session=/);
+  assert.match(sessionHeader, /HttpOnly/i);
+  assert.match(sessionHeader, /SameSite=Strict/i);
+  assert.doesNotMatch(sessionHeader, /; Secure/i);
+
+  const previousEnvironment = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  const productionLogin = await request(app)
+    .post('/api/auth/login')
+    .send({ email: 'primary@example.com', password: 'StrongPass123!' });
+  process.env.NODE_ENV = previousEnvironment;
+  assert.match(productionLogin.headers['set-cookie'][0], /; Secure/i);
 
   const invalid = await request(app)
     .post('/api/auth/login')
@@ -89,13 +109,18 @@ test('logs in with valid credentials and rejects an invalid login', async () => 
   assert.equal(invalid.body.error, 'Invalid email or password');
 });
 
-test('treats logout as client-side token removal and rejects logged-out requests', async () => {
-  const authenticatedResponse = await authenticated('get', '/api/auth/me', primary.token);
+test('clears the authentication cookie on logout', async () => {
+  const authenticatedResponse = await authenticated('get', '/api/auth/me', primary.cookie);
   assert.equal(authenticatedResponse.status, 200);
 
-  const afterTokenRemoval = await request(app).get('/api/auth/me');
-  assert.equal(afterTokenRemoval.status, 401);
-  assert.equal(afterTokenRemoval.body.error, 'Authentication required');
+  const logout = await authenticated('post', '/api/auth/logout', primary.cookie);
+  assert.equal(logout.status, 204, logout.text);
+  assert.match(logout.headers['set-cookie'][0], /Max-Age=0/i);
+
+  const clearedCookie = logout.headers['set-cookie'][0].split(';')[0];
+  const afterLogout = await authenticated('get', '/api/auth/me', clearedCookie);
+  assert.equal(afterLogout.status, 401);
+  assert.equal(afterLogout.body.error, 'Authentication required');
 });
 
 test('prepares password resets without revealing whether unknown accounts exist', async () => {
@@ -183,7 +208,7 @@ test('rejects an invalid reset token', async () => {
 });
 
 test('creates, edits, reads, and deletes a transaction', async () => {
-  const created = await authenticated('post', '/api/transactions', primary.token)
+  const created = await authenticated('post', '/api/transactions', primary.cookie)
     .send({
       description: 'Initial merchant',
       amount: 42.5,
@@ -194,7 +219,7 @@ test('creates, edits, reads, and deletes a transaction', async () => {
   assert.equal(created.status, 201, created.text);
   assert.equal(created.body.notes, 'Created through the browser contract');
 
-  const edited = await authenticated('put', `/api/transactions/${created.body.id}`, primary.token)
+  const edited = await authenticated('put', `/api/transactions/${created.body.id}`, primary.cookie)
     .send({
       description: 'Edited merchant',
       amount: 50,
@@ -206,21 +231,21 @@ test('creates, edits, reads, and deletes a transaction', async () => {
   assert.equal(edited.body.merchant, 'Edited merchant');
   assert.equal(edited.body.notes, 'Edited through the browser contract');
 
-  const list = await authenticated('get', '/api/transactions', primary.token);
+  const list = await authenticated('get', '/api/transactions', primary.cookie);
   assert.equal(list.status, 200, list.text);
   assert.ok(list.body.some((transaction) => transaction.id === created.body.id));
 
-  const deleted = await authenticated('delete', `/api/transactions/${created.body.id}`, primary.token);
+  const deleted = await authenticated('delete', `/api/transactions/${created.body.id}`, primary.cookie);
   assert.equal(deleted.status, 204, deleted.text);
 });
 
 test('patches only the supplied transaction fields', async () => {
-  const categories = await authenticated('get', '/api/categories', primary.token);
+  const categories = await authenticated('get', '/api/categories', primary.cookie);
   const expenseCategories = categories.body.filter((category) => category.type === 'expense');
   assert.ok(expenseCategories.length >= 2);
 
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-  const created = await authenticated('post', '/api/transactions', primary.token)
+  const created = await authenticated('post', '/api/transactions', primary.cookie)
     .send({
       description: 'Original merchant',
       amount: 100,
@@ -237,7 +262,7 @@ test('patches only the supplied transaction fields', async () => {
     const response = await authenticated(
       'patch',
       `/api/transactions/${created.body.id}`,
-      primary.token
+      primary.cookie
     ).send(body);
     assert.equal(response.status, 200, response.text);
 
@@ -276,30 +301,30 @@ test('patches only the supplied transaction fields', async () => {
   const invalidField = await authenticated(
     'patch',
     `/api/transactions/${created.body.id}`,
-    primary.token
+    primary.cookie
   ).send({ unsupported: 'value' });
   assert.equal(invalidField.status, 400, invalidField.text);
 
   const emptyPatch = await authenticated(
     'patch',
     `/api/transactions/${created.body.id}`,
-    primary.token
+    primary.cookie
   ).send({});
   assert.equal(emptyPatch.status, 400, emptyPatch.text);
 
-  const afterRejectedPatches = await authenticated('get', '/api/transactions', primary.token);
+  const afterRejectedPatches = await authenticated('get', '/api/transactions', primary.cookie);
   const unchanged = afterRejectedPatches.body.find((transaction) => transaction.id === created.body.id);
   assert.equal(Number(unchanged.amount), 725.5);
   assert.equal(unchanged.merchant, 'Multi-field merchant');
   assert.equal(unchanged.category_id, expenseCategories[1].id);
   assert.equal(String(unchanged.transaction_date).slice(0, 10), yesterday);
 
-  const deleted = await authenticated('delete', `/api/transactions/${created.body.id}`, primary.token);
+  const deleted = await authenticated('delete', `/api/transactions/${created.body.id}`, primary.cookie);
   assert.equal(deleted.status, 204, deleted.text);
 });
 
 test('prevents one user from reading, editing, or deleting another user transaction', async () => {
-  const created = await authenticated('post', '/api/transactions', primary.token)
+  const created = await authenticated('post', '/api/transactions', primary.cookie)
     .send({
       description: 'Private transaction',
       amount: 20,
@@ -308,11 +333,11 @@ test('prevents one user from reading, editing, or deleting another user transact
     });
   assert.equal(created.status, 201, created.text);
 
-  const secondaryList = await authenticated('get', '/api/transactions', secondary.token);
+  const secondaryList = await authenticated('get', '/api/transactions', secondary.cookie);
   assert.equal(secondaryList.status, 200, secondaryList.text);
   assert.equal(secondaryList.body.some((transaction) => transaction.id === created.body.id), false);
 
-  const edit = await authenticated('put', `/api/transactions/${created.body.id}`, secondary.token)
+  const edit = await authenticated('put', `/api/transactions/${created.body.id}`, secondary.cookie)
     .send({
       description: 'Stolen transaction',
       amount: 1,
@@ -321,20 +346,20 @@ test('prevents one user from reading, editing, or deleting another user transact
     });
   assert.equal(edit.status, 404, edit.text);
 
-  const remove = await authenticated('delete', `/api/transactions/${created.body.id}`, secondary.token);
+  const remove = await authenticated('delete', `/api/transactions/${created.body.id}`, secondary.cookie);
   assert.equal(remove.status, 404, remove.text);
 
-  const ownerList = await authenticated('get', '/api/transactions', primary.token);
+  const ownerList = await authenticated('get', '/api/transactions', primary.cookie);
   assert.ok(ownerList.body.some((transaction) => transaction.id === created.body.id));
 });
 
 test('rejects cross-user categories across transactions, budgets, and recurring data', async () => {
-  const primaryCategories = await authenticated('get', '/api/categories', primary.token);
-  const secondaryCategories = await authenticated('get', '/api/categories', secondary.token);
+  const primaryCategories = await authenticated('get', '/api/categories', primary.cookie);
+  const secondaryCategories = await authenticated('get', '/api/categories', secondary.cookie);
   const primaryCategory = primaryCategories.body.find((category) => category.type === 'expense');
   const secondaryCategory = secondaryCategories.body.find((category) => category.type === 'expense');
 
-  const createTransaction = await authenticated('post', '/api/transactions', primary.token)
+  const createTransaction = await authenticated('post', '/api/transactions', primary.cookie)
     .send({
       description: 'Unauthorized category transaction',
       amount: 10,
@@ -344,7 +369,7 @@ test('rejects cross-user categories across transactions, budgets, and recurring 
     });
   assert.equal(createTransaction.status, 400, createTransaction.text);
 
-  const ownTransaction = await authenticated('post', '/api/transactions', primary.token)
+  const ownTransaction = await authenticated('post', '/api/transactions', primary.cookie)
     .send({
       description: 'Owned transaction',
       amount: 10,
@@ -357,7 +382,7 @@ test('rejects cross-user categories across transactions, budgets, and recurring 
   const updateTransaction = await authenticated(
     'put',
     `/api/transactions/${ownTransaction.body.id}`,
-    primary.token
+    primary.cookie
   ).send({
     description: 'Unauthorized update',
     amount: 10,
@@ -367,11 +392,11 @@ test('rejects cross-user categories across transactions, budgets, and recurring 
   });
   assert.equal(updateTransaction.status, 400, updateTransaction.text);
 
-  const createBudget = await authenticated('post', '/api/budgets', primary.token)
+  const createBudget = await authenticated('post', '/api/budgets', primary.cookie)
     .send({ category_id: secondaryCategory.id, monthly_limit: 100, month: currentMonth });
   assert.equal(createBudget.status, 400, createBudget.text);
 
-  const createRecurring = await authenticated('post', '/api/recurring', primary.token)
+  const createRecurring = await authenticated('post', '/api/recurring', primary.cookie)
     .send({
       description: 'Unauthorized recurring category',
       amount: 10,
@@ -382,7 +407,7 @@ test('rejects cross-user categories across transactions, budgets, and recurring 
     });
   assert.equal(createRecurring.status, 400, createRecurring.text);
 
-  const ownRecurring = await authenticated('post', '/api/recurring', primary.token)
+  const ownRecurring = await authenticated('post', '/api/recurring', primary.cookie)
     .send({
       description: 'Owned recurring category',
       amount: 10,
@@ -396,7 +421,7 @@ test('rejects cross-user categories across transactions, budgets, and recurring 
   const updateRecurring = await authenticated(
     'put',
     `/api/recurring/${ownRecurring.body.id}`,
-    primary.token
+    primary.cookie
   ).send({ category_id: secondaryCategory.id });
   assert.equal(updateRecurring.status, 400, updateRecurring.text);
 
@@ -411,14 +436,14 @@ test('rejects cross-user categories across transactions, budgets, and recurring 
   const deleteTransaction = await authenticated(
     'delete',
     `/api/transactions/${ownTransaction.body.id}`,
-    primary.token
+    primary.cookie
   );
   assert.equal(deleteTransaction.status, 204, deleteTransaction.text);
 
   const deleteRecurring = await authenticated(
     'delete',
     `/api/recurring/${ownRecurring.body.id}`,
-    primary.token
+    primary.cookie
   );
   assert.equal(deleteRecurring.status, 204, deleteRecurring.text);
 });
@@ -433,7 +458,7 @@ test('creates a budget and reports its near-limit warning', async () => {
   );
   const categoryId = categoryResult.rows[0].id;
 
-  const createdBudget = await authenticated('post', '/api/budgets', primary.token)
+  const createdBudget = await authenticated('post', '/api/budgets', primary.cookie)
     .send({
       category_id: categoryId,
       month: currentMonth,
@@ -466,7 +491,7 @@ test('creates a budget and reports its near-limit warning', async () => {
 });
 
 test('processes a due recurring transaction exactly once per run date', async () => {
-  const recurring = await authenticated('post', '/api/recurring', primary.token)
+  const recurring = await authenticated('post', '/api/recurring', primary.cookie)
     .send({
       description: 'Monthly rent',
       amount: 700,
@@ -497,7 +522,7 @@ test('processes a due recurring transaction exactly once per run date', async ()
 });
 
 test('updates profile settings using the browser contract', async () => {
-  const updated = await authenticated('put', '/api/profile', primary.token)
+  const updated = await authenticated('put', '/api/profile', primary.cookie)
     .send({
       name: 'Updated Penny User',
       email: 'updated-primary@example.com',
@@ -517,7 +542,7 @@ test('updates profile settings using the browser contract', async () => {
 });
 
 test('patches profile fields without resetting omitted settings', async () => {
-  const initialResponse = await authenticated('get', '/api/profile', primary.token);
+  const initialResponse = await authenticated('get', '/api/profile', primary.cookie);
   assert.equal(initialResponse.status, 200, initialResponse.text);
   const initial = initialResponse.body;
   let current = initial;
@@ -528,7 +553,7 @@ test('patches profile fields without resetting omitted settings', async () => {
 
   const patchAndVerify = async (body, changedFields) => {
     const before = current;
-    const response = await authenticated('patch', '/api/profile', primary.token).send(body);
+    const response = await authenticated('patch', '/api/profile', primary.cookie).send(body);
     assert.equal(response.status, 200, response.text);
     for (const field of profileFields) {
       if (!changedFields.includes(field)) {
@@ -577,7 +602,7 @@ test('patches profile fields without resetting omitted settings', async () => {
   assert.equal(combined.theme_preference, 'dark');
   assert.equal(combined.budget_reset_day, 12);
 
-  const restored = await authenticated('patch', '/api/profile', primary.token).send({
+  const restored = await authenticated('patch', '/api/profile', primary.cookie).send({
     name: initial.name,
     email: initial.email,
     preferredCurrency: initial.preferred_currency,
@@ -590,7 +615,7 @@ test('patches profile fields without resetting omitted settings', async () => {
 });
 
 test('validates CSV imports and imports only usable rows', async () => {
-  const missing = await authenticated('post', '/api/imports/csv', primary.token);
+  const missing = await authenticated('post', '/api/imports/csv', primary.cookie);
   assert.equal(missing.status, 400);
   assert.equal(missing.body.error, 'CSV file is required');
 
@@ -601,7 +626,7 @@ test('validates CSV imports and imports only usable rows', async () => {
     ',Missing date,12,expense'
   ].join('\n');
 
-  const imported = await authenticated('post', '/api/imports/csv', primary.token)
+  const imported = await authenticated('post', '/api/imports/csv', primary.cookie)
     .attach('statement', Buffer.from(csv), {
       filename: 'statement.csv',
       contentType: 'text/csv'
@@ -611,7 +636,7 @@ test('validates CSV imports and imports only usable rows', async () => {
 });
 
 test('calculates current-month income, expenses, cash flow, and category spend', async () => {
-  const summary = await authenticated('get', '/api/analytics/summary', primary.token);
+  const summary = await authenticated('get', '/api/analytics/summary', primary.cookie);
   assert.equal(summary.status, 200, summary.text);
   assert.ok(Number(summary.body.income) >= 1200);
   assert.ok(Number(summary.body.expenses) >= 885);
@@ -620,19 +645,19 @@ test('calculates current-month income, expenses, cash flow, and category spend',
     Number(summary.body.income) - Number(summary.body.expenses)
   );
 
-  const categorySpend = await authenticated('get', '/api/analytics/category-spend', primary.token);
+  const categorySpend = await authenticated('get', '/api/analytics/category-spend', primary.cookie);
   assert.equal(categorySpend.status, 200, categorySpend.text);
   assert.ok(categorySpend.body.some((row) => Number(row.total) >= 85));
 });
 
 test('calculates budget progress and ranks current-month expense merchants', async () => {
-  const budgetProgress = await authenticated('get', '/api/analytics/budget-progress', primary.token);
+  const budgetProgress = await authenticated('get', '/api/analytics/budget-progress', primary.cookie);
   assert.equal(budgetProgress.status, 200, budgetProgress.text);
   assert.ok(budgetProgress.body.some((row) => (
     Number(row.limit_amount) === 100 && Number(row.spent) >= 85
   )), JSON.stringify(budgetProgress.body));
 
-  const topMerchants = await authenticated('get', '/api/analytics/top-merchants', primary.token);
+  const topMerchants = await authenticated('get', '/api/analytics/top-merchants', primary.cookie);
   assert.equal(topMerchants.status, 200, topMerchants.text);
   assert.ok(topMerchants.body.some((row) => (
     row.merchant === 'Budget test' && Number(row.total) >= 85

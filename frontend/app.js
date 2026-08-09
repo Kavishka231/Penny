@@ -9,8 +9,8 @@ import {
 import { escapeHtml } from './safe-html.js';
 
 const state = {
-  token: localStorage.getItem('penny_token'),
-  user: JSON.parse(localStorage.getItem('penny_user') || 'null'),
+  authenticated: false,
+  user: null,
   categories: [],
   transactions: [],
   recurringTransactions: [],
@@ -105,9 +105,7 @@ function refreshRecurringCategoryOptions() {
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-  if (state.token) headers.Authorization = `Bearer ${state.token}`;
-
-  const response = await fetch(`/api${path}`, { ...options, headers });
+  const response = await fetch(`/api${path}`, { ...options, headers, credentials: 'include' });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.error || 'Request failed');
@@ -117,21 +115,19 @@ async function api(path, options = {}) {
 }
 
 function setSession(payload) {
-  state.token = payload.token;
+  state.authenticated = true;
   state.user = payload.user;
-  localStorage.setItem('penny_token', payload.token);
-  localStorage.setItem('penny_user', JSON.stringify(payload.user));
   renderShell();
   loadAll();
 }
 
 function renderShell() {
-  document.querySelector('#auth-panel').classList.toggle('hidden', Boolean(state.token));
-  document.querySelector('#app-content').classList.toggle('hidden', !state.token);
-  document.querySelector('#app-nav').classList.toggle('hidden', !state.token);
-  document.querySelector('#logout-btn').classList.toggle('hidden', !state.token);
+  document.querySelector('#auth-panel').classList.toggle('hidden', state.authenticated);
+  document.querySelector('#app-content').classList.toggle('hidden', !state.authenticated);
+  document.querySelector('#app-nav').classList.toggle('hidden', !state.authenticated);
+  document.querySelector('#logout-btn').classList.toggle('hidden', !state.authenticated);
   document.querySelector('#user-label').textContent = state.user ? state.user.name : '';
-  document.querySelector('#view-title').textContent = state.token ? 'Dashboard' : 'Login / Sign up';
+  document.querySelector('#view-title').textContent = state.authenticated ? 'Dashboard' : 'Login / Sign up';
 }
 
 function setView(view) {
@@ -287,7 +283,7 @@ async function loadBudgets() {
 }
 
 async function loadAll() {
-  if (!state.token) return;
+  if (!state.authenticated) return;
   await loadCategories();
   await loadProfile();
   await Promise.all([loadDashboard(), loadTransactions(), loadRecurringTransactions(), loadBudgets()]);
@@ -351,10 +347,9 @@ document.querySelector('#reset-password-btn').addEventListener('click', async (e
   }
 });
 
-document.querySelector('#logout-btn').addEventListener('click', () => {
-  localStorage.removeItem('penny_token');
-  localStorage.removeItem('penny_user');
-  state.token = null;
+document.querySelector('#logout-btn').addEventListener('click', async () => {
+  await api('/auth/logout', { method: 'POST' });
+  state.authenticated = false;
   state.user = null;
   renderShell();
 });
@@ -569,7 +564,7 @@ document.querySelector('#csv-form').addEventListener('submit', async (event) => 
 
 document.querySelector('#export-btn').addEventListener('click', async () => {
   const response = await fetch('/api/reports/transactions.csv', {
-    headers: { Authorization: `Bearer ${state.token}` }
+    credentials: 'include'
   });
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
@@ -613,7 +608,6 @@ document.querySelector('#profile-form').addEventListener('submit', async (event)
   try {
     const profile = await api('/profile', { method: 'PUT', body: JSON.stringify(data) });
     state.user = { ...state.user, name: profile.name, email: profile.email };
-    localStorage.setItem('penny_user', JSON.stringify(state.user));
     document.querySelector('#user-label').textContent = profile.name;
     setTheme(profile.theme_preference || data.themePreference);
     document.querySelector('#profile-initials').textContent = initialsFor(profile.name);
@@ -626,5 +620,16 @@ document.querySelector('#profile-form').addEventListener('submit', async (event)
   }
 });
 
-renderShell();
-loadAll();
+async function restoreSession() {
+  renderShell();
+  try {
+    const payload = await api('/auth/me');
+    setSession(payload);
+  } catch {
+    state.authenticated = false;
+    state.user = null;
+    renderShell();
+  }
+}
+
+restoreSession();

@@ -21,6 +21,7 @@ import {
   registerSchema,
   resetPasswordSchema,
 } from '../validation/schemas.js';
+import { clearSessionCookie, setSessionCookie } from '../lib/sessionCookie.js';
 
 const router = express.Router();
 const resetRequestLimiter = rateLimit({
@@ -36,7 +37,7 @@ function signToken(user) {
   return jwt.sign(
     { id: user.id, email: user.email, name: user.name },
     process.env.JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: '7d', algorithm: 'HS256', issuer: 'penny', audience: 'penny-web' }
   );
 }
 
@@ -64,7 +65,8 @@ router.post('/register', validate(registerSchema), async (req, res, next) => {
       return created.rows[0];
     });
 
-    res.status(201).json({ token: signToken(user), user });
+    setSessionCookie(res, signToken(user));
+    res.status(201).json({ user });
   } catch (error) {
     if (error.code === '23505') {
       return res.status(409).json({ error: 'An account already exists for that email' });
@@ -92,10 +94,8 @@ router.post('/login', validate(loginSchema), async (req, res, next) => {
       console.error('Failed to process recurring transactions during login', error);
     }
 
-    res.json({
-      token: signToken(user),
-      user: { id: user.id, name: user.name, email: user.email }
-    });
+    setSessionCookie(res, signToken(user));
+    res.json({ user: { id: user.id, name: user.name, email: user.email } });
   } catch (error) {
     next(error);
   }
@@ -178,6 +178,11 @@ router.post('/reset-password', validate(resetPasswordSchema), async (req, res, n
 
 router.get('/me', requireAuth, async (req, res) => {
   res.json({ user: req.user });
+});
+
+router.post('/logout', (_req, res) => {
+  clearSessionCookie(res);
+  res.status(204).end();
 });
 
 export default router;
