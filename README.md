@@ -4,7 +4,7 @@ Penny is a full-stack personal finance intelligence platform for tracking income
 
 ## Features
 
-- HttpOnly cookie authentication with per-user financial data isolation.
+- HttpOnly SameSite cookie authentication with per-session CSRF tokens and per-user data isolation.
 - Transaction ledger for income and expenses with search, category labels and CSV export.
 - Transaction editing and amount/date/type/category filters.
 - Default and custom categories stored in PostgreSQL.

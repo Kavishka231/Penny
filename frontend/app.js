@@ -11,6 +11,7 @@ import { escapeHtml } from './safe-html.js';
 const state = {
   authenticated: false,
   user: null,
+  csrfToken: null,
   categories: [],
   transactions: [],
   recurringTransactions: [],
@@ -105,6 +106,10 @@ function refreshRecurringCategoryOptions() {
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  const method = String(options.method || 'GET').toUpperCase();
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && state.csrfToken) {
+    headers['X-CSRF-Token'] = state.csrfToken;
+  }
   const response = await fetch(`/api${path}`, { ...options, headers, credentials: 'include' });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
@@ -117,6 +122,7 @@ async function api(path, options = {}) {
 function setSession(payload) {
   state.authenticated = true;
   state.user = payload.user;
+  state.csrfToken = payload.csrfToken;
   renderShell();
   loadAll();
 }
@@ -351,6 +357,7 @@ document.querySelector('#logout-btn').addEventListener('click', async () => {
   await api('/auth/logout', { method: 'POST' });
   state.authenticated = false;
   state.user = null;
+  state.csrfToken = null;
   renderShell();
 });
 
@@ -628,6 +635,7 @@ async function restoreSession() {
   } catch {
     state.authenticated = false;
     state.user = null;
+    state.csrfToken = null;
     renderShell();
   }
 }

@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { rateLimit } from 'express-rate-limit';
@@ -34,8 +35,9 @@ const resetRequestLimiter = rateLimit({
 const resetResponseMessage = 'If that account exists, a reset link has been prepared.';
 
 function signToken(user) {
+  const csrf = crypto.randomBytes(32).toString('hex');
   return jwt.sign(
-    { id: user.id, email: user.email, name: user.name },
+    { id: user.id, email: user.email, name: user.name, csrf },
     process.env.JWT_SECRET,
     { expiresIn: '7d', algorithm: 'HS256', issuer: 'penny', audience: 'penny-web' }
   );
@@ -65,8 +67,9 @@ router.post('/register', validate(registerSchema), async (req, res, next) => {
       return created.rows[0];
     });
 
-    setSessionCookie(res, signToken(user));
-    res.status(201).json({ user });
+    const token = signToken(user);
+    setSessionCookie(res, token);
+    res.status(201).json({ user, csrfToken: jwt.decode(token).csrf });
   } catch (error) {
     if (error.code === '23505') {
       return res.status(409).json({ error: 'An account already exists for that email' });
@@ -94,8 +97,12 @@ router.post('/login', validate(loginSchema), async (req, res, next) => {
       console.error('Failed to process recurring transactions during login', error);
     }
 
-    setSessionCookie(res, signToken(user));
-    res.json({ user: { id: user.id, name: user.name, email: user.email } });
+    const token = signToken(user);
+    setSessionCookie(res, token);
+    res.json({
+      user: { id: user.id, name: user.name, email: user.email },
+      csrfToken: jwt.decode(token).csrf
+    });
   } catch (error) {
     next(error);
   }
@@ -177,10 +184,13 @@ router.post('/reset-password', validate(resetPasswordSchema), async (req, res, n
 });
 
 router.get('/me', requireAuth, async (req, res) => {
-  res.json({ user: req.user });
+  res.json({
+    user: { id: req.user.id, email: req.user.email, name: req.user.name },
+    csrfToken: req.user.csrf
+  });
 });
 
-router.post('/logout', (_req, res) => {
+router.post('/logout', requireAuth, (_req, res) => {
   clearSessionCookie(res);
   res.status(204).end();
 });

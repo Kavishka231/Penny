@@ -18,6 +18,7 @@ let mayExposeResetToken;
 let primary;
 let secondary;
 let validResetToken;
+const csrfByCookie = new Map();
 
 const currentDate = new Date().toISOString().slice(0, 10);
 const currentMonth = `${currentDate.slice(0, 7)}-01`;
@@ -30,11 +31,19 @@ async function register(name, email) {
   assert.equal(response.status, 201, response.text);
   const cookie = response.headers['set-cookie']?.[0]?.split(';')[0];
   assert.ok(cookie, 'Registration must set a session cookie');
+  assert.match(response.body.csrfToken, /^[a-f0-9]{64}$/);
+  csrfByCookie.set(cookie, response.body.csrfToken);
   return { ...response.body, cookie };
 }
 
 function authenticated(method, path, cookie) {
-  return request(app)[method](path).set('Cookie', cookie);
+  const pending = request(app)[method](path).set('Cookie', cookie);
+  if (!['get', 'head', 'options'].includes(method.toLowerCase())) {
+    pending
+      .set('Origin', 'https://trusted.penny.test')
+      .set('X-CSRF-Token', csrfByCookie.get(cookie));
+  }
+  return pending;
 }
 
 before(async () => {
@@ -92,6 +101,7 @@ test('logs in with valid credentials and rejects an invalid login', async () => 
   assert.match(sessionHeader, /^penny_session=/);
   assert.match(sessionHeader, /HttpOnly/i);
   assert.match(sessionHeader, /SameSite=Strict/i);
+  assert.match(valid.body.csrfToken, /^[a-f0-9]{64}$/);
   assert.doesNotMatch(sessionHeader, /; Secure/i);
 
   const previousEnvironment = process.env.NODE_ENV;
@@ -107,6 +117,46 @@ test('logs in with valid credentials and rejects an invalid login', async () => 
     .send({ email: 'primary@example.com', password: 'not-the-password' });
   assert.equal(invalid.status, 401);
   assert.equal(invalid.body.error, 'Invalid email or password');
+});
+
+test('rejects authenticated mutations without a valid CSRF token and trusted origin', async () => {
+  const missingToken = await request(app)
+    .patch('/api/profile')
+    .set('Cookie', primary.cookie)
+    .set('Origin', 'https://trusted.penny.test')
+    .send({ name: 'CSRF mutation' });
+  assert.equal(missingToken.status, 403, missingToken.text);
+  assert.equal(missingToken.body.error, 'Invalid CSRF token');
+
+  const wrongToken = await request(app)
+    .patch('/api/profile')
+    .set('Cookie', primary.cookie)
+    .set('Origin', 'https://trusted.penny.test')
+    .set('X-CSRF-Token', 'wrong-token')
+    .send({ name: 'CSRF mutation' });
+  assert.equal(wrongToken.status, 403, wrongToken.text);
+  assert.equal(wrongToken.body.error, 'Invalid CSRF token');
+
+  const missingOrigin = await request(app)
+    .patch('/api/profile')
+    .set('Cookie', primary.cookie)
+    .set('X-CSRF-Token', csrfByCookie.get(primary.cookie))
+    .send({ name: 'CSRF mutation' });
+  assert.equal(missingOrigin.status, 403, missingOrigin.text);
+  assert.equal(missingOrigin.body.error, 'Request origin is not allowed');
+
+  const untrustedOrigin = await request(app)
+    .patch('/api/profile')
+    .set('Cookie', primary.cookie)
+    .set('Origin', 'https://attacker.example.com')
+    .set('X-CSRF-Token', csrfByCookie.get(primary.cookie))
+    .send({ name: 'CSRF mutation' });
+  assert.equal(untrustedOrigin.status, 403, untrustedOrigin.text);
+  assert.equal(untrustedOrigin.body.error, 'Origin is not allowed by CORS');
+
+  const unchanged = await authenticated('get', '/api/profile', primary.cookie);
+  assert.equal(unchanged.status, 200, unchanged.text);
+  assert.equal(unchanged.body.name, 'Primary User');
 });
 
 test('clears the authentication cookie on logout', async () => {
