@@ -75,7 +75,10 @@ export const transactionCreateSchema = z.object({
 	notes: z.string().optional(),
 }).strict();
 
-export const transactionUpdateSchema = transactionCreateSchema.partial();
+export const transactionUpdateSchema = transactionCreateSchema.partial().refine(
+	(value) => Object.keys(value).length > 0,
+	{ message: 'At least one transaction field is required' },
+);
 
 export const transactionQuerySchema = z.object({
 	type: z.enum(['income', 'expense']).optional(),

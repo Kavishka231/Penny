@@ -78,7 +78,7 @@ Negative amounts are treated as expenses. Positive amounts default to income unl
 - `POST /api/categories`
 - `GET /api/transactions`
 - `POST /api/transactions`
-- `PUT /api/transactions/:id`
+- `PATCH /api/transactions/:id` (`PUT` remains supported for compatibility)
 - `DELETE /api/transactions/:id`
 - `GET /api/budgets`
 - `POST /api/budgets`

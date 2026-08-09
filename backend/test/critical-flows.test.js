@@ -214,6 +214,90 @@ test('creates, edits, reads, and deletes a transaction', async () => {
   assert.equal(deleted.status, 204, deleted.text);
 });
 
+test('patches only the supplied transaction fields', async () => {
+  const categories = await authenticated('get', '/api/categories', primary.token);
+  const expenseCategories = categories.body.filter((category) => category.type === 'expense');
+  assert.ok(expenseCategories.length >= 2);
+
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const created = await authenticated('post', '/api/transactions', primary.token)
+    .send({
+      description: 'Original merchant',
+      amount: 100,
+      type: 'expense',
+      category_id: expenseCategories[0].id,
+      date: currentDate,
+      notes: 'Original notes'
+    });
+  assert.equal(created.status, 201, created.text);
+
+  let current = created.body;
+  const patchAndVerify = async (body, changedFields) => {
+    const before = current;
+    const response = await authenticated(
+      'patch',
+      `/api/transactions/${created.body.id}`,
+      primary.token
+    ).send(body);
+    assert.equal(response.status, 200, response.text);
+
+    for (const field of ['type', 'category_id', 'merchant', 'amount', 'transaction_date', 'notes']) {
+      if (!changedFields.includes(field)) {
+        assert.equal(String(response.body[field]), String(before[field]), `${field} changed unexpectedly`);
+      }
+    }
+    current = response.body;
+    return response.body;
+  };
+
+  const amountOnly = await patchAndVerify({ amount: 500 }, ['amount']);
+  assert.equal(Number(amountOnly.amount), 500);
+
+  const descriptionOnly = await patchAndVerify({ description: 'Changed merchant' }, ['merchant']);
+  assert.equal(descriptionOnly.merchant, 'Changed merchant');
+
+  const categoryOnly = await patchAndVerify(
+    { category_id: expenseCategories[1].id },
+    ['category_id']
+  );
+  assert.equal(categoryOnly.category_id, expenseCategories[1].id);
+
+  const dateOnly = await patchAndVerify({ date: yesterday }, ['transaction_date']);
+  assert.equal(String(dateOnly.transaction_date).slice(0, 10), yesterday);
+
+  const multiple = await patchAndVerify(
+    { amount: 725.5, description: 'Multi-field merchant', notes: 'Multi-field notes' },
+    ['amount', 'merchant', 'notes']
+  );
+  assert.equal(Number(multiple.amount), 725.5);
+  assert.equal(multiple.merchant, 'Multi-field merchant');
+  assert.equal(multiple.notes, 'Multi-field notes');
+
+  const invalidField = await authenticated(
+    'patch',
+    `/api/transactions/${created.body.id}`,
+    primary.token
+  ).send({ unsupported: 'value' });
+  assert.equal(invalidField.status, 400, invalidField.text);
+
+  const emptyPatch = await authenticated(
+    'patch',
+    `/api/transactions/${created.body.id}`,
+    primary.token
+  ).send({});
+  assert.equal(emptyPatch.status, 400, emptyPatch.text);
+
+  const afterRejectedPatches = await authenticated('get', '/api/transactions', primary.token);
+  const unchanged = afterRejectedPatches.body.find((transaction) => transaction.id === created.body.id);
+  assert.equal(Number(unchanged.amount), 725.5);
+  assert.equal(unchanged.merchant, 'Multi-field merchant');
+  assert.equal(unchanged.category_id, expenseCategories[1].id);
+  assert.equal(String(unchanged.transaction_date).slice(0, 10), yesterday);
+
+  const deleted = await authenticated('delete', `/api/transactions/${created.body.id}`, primary.token);
+  assert.equal(deleted.status, 204, deleted.text);
+});
+
 test('prevents one user from reading, editing, or deleting another user transaction', async () => {
   const created = await authenticated('post', '/api/transactions', primary.token)
     .send({

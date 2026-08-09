@@ -64,7 +64,7 @@ app.use(cors({
     error.status = 403;
     return callback(error);
   },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Authorization', 'Content-Type']
 }));
 app.use(express.json({ limit: '1mb' }));

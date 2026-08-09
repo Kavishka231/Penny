@@ -86,32 +86,46 @@ router.post('/', validate(transactionCreateSchema), async (req, res, next) => {
   }
 });
 
-router.put('/:id', validate(transactionUpdateSchema), async (req, res, next) => {
+async function updateTransaction(req, res, next) {
   try {
-    const {
-      type,
-      category_id: categoryId,
-      description: merchant,
-      amount,
-      date: transactionDate,
-      notes,
-    } = req.body;
-    if (!(await userOwnsCategory(categoryId, req.user.id))) {
+    if (Object.hasOwn(req.body, 'category_id')
+        && !(await userOwnsCategory(req.body.category_id, req.user.id))) {
       return res.status(400).json({ error: 'Category does not belong to this user' });
     }
+
+    const fields = [];
+    const values = [req.params.id, req.user.id];
+    const columnByProperty = {
+      type: 'type',
+      category_id: 'category_id',
+      description: 'merchant',
+      amount: 'amount',
+      date: 'transaction_date',
+      notes: 'notes'
+    };
+
+    for (const [property, column] of Object.entries(columnByProperty)) {
+      if (!Object.hasOwn(req.body, property)) continue;
+      values.push(req.body[property]);
+      fields.push(`${column} = $${values.length}`);
+    }
+
     const result = await query(
       `UPDATE transactions
-       SET type = $3, category_id = $4, merchant = $5, amount = $6, transaction_date = $7, notes = $8, updated_at = now()
+       SET ${fields.join(', ')}, updated_at = now()
        WHERE id = $1 AND user_id = $2
        RETURNING *`,
-      [req.params.id, req.user.id, type, categoryId || null, merchant, amount, transactionDate, notes || null]
+      values
     );
     if (!result.rowCount) return res.status(404).json({ error: 'Transaction not found' });
     res.json(result.rows[0]);
   } catch (error) {
     next(error);
   }
-});
+}
+
+router.patch('/:id', validate(transactionUpdateSchema), updateTransaction);
+router.put('/:id', validate(transactionUpdateSchema), updateTransaction);
 
 router.delete('/:id', async (req, res, next) => {
   try {
