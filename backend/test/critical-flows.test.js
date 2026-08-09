@@ -516,6 +516,79 @@ test('updates profile settings using the browser contract', async () => {
   assert.equal(updated.body.date_format, 'DD/MM/YYYY');
 });
 
+test('patches profile fields without resetting omitted settings', async () => {
+  const initialResponse = await authenticated('get', '/api/profile', primary.token);
+  assert.equal(initialResponse.status, 200, initialResponse.text);
+  const initial = initialResponse.body;
+  let current = initial;
+  const profileFields = [
+    'name', 'email', 'phone', 'address', 'preferred_currency', 'timezone',
+    'theme_preference', 'budget_reset_day', 'date_format'
+  ];
+
+  const patchAndVerify = async (body, changedFields) => {
+    const before = current;
+    const response = await authenticated('patch', '/api/profile', primary.token).send(body);
+    assert.equal(response.status, 200, response.text);
+    for (const field of profileFields) {
+      if (!changedFields.includes(field)) {
+        assert.equal(response.body[field], before[field], `${field} changed unexpectedly`);
+      }
+    }
+    current = response.body;
+    return response.body;
+  };
+
+  const nameOnly = await patchAndVerify({ name: 'Kavishka' }, ['name']);
+  assert.equal(nameOnly.name, 'Kavishka');
+
+  const emailOnly = await patchAndVerify(
+    { email: 'kavishka.profile@example.com' },
+    ['email']
+  );
+  assert.equal(emailOnly.email, 'kavishka.profile@example.com');
+
+  const currencyOnly = await patchAndVerify({ currency: 'USD' }, ['preferred_currency']);
+  assert.equal(currencyOnly.preferred_currency, 'USD');
+
+  const timezoneOnly = await patchAndVerify({ timezone: 'Asia/Colombo' }, ['timezone']);
+  assert.equal(timezoneOnly.timezone, 'Asia/Colombo');
+
+  const preferencesOnly = await patchAndVerify({
+    preferences: {
+      themePreference: 'light',
+      budgetResetDay: 7,
+      dateFormat: 'YYYY-MM-DD'
+    }
+  }, ['theme_preference', 'budget_reset_day', 'date_format']);
+  assert.equal(preferencesOnly.theme_preference, 'light');
+  assert.equal(preferencesOnly.budget_reset_day, 7);
+  assert.equal(preferencesOnly.date_format, 'YYYY-MM-DD');
+
+  const combined = await patchAndVerify({
+    name: 'Combined Profile',
+    currency: 'LKR',
+    timezone: 'Europe/London',
+    preferences: { themePreference: 'dark', budgetResetDay: 12 }
+  }, ['name', 'preferred_currency', 'timezone', 'theme_preference', 'budget_reset_day']);
+  assert.equal(combined.name, 'Combined Profile');
+  assert.equal(combined.preferred_currency, 'LKR');
+  assert.equal(combined.timezone, 'Europe/London');
+  assert.equal(combined.theme_preference, 'dark');
+  assert.equal(combined.budget_reset_day, 12);
+
+  const restored = await authenticated('patch', '/api/profile', primary.token).send({
+    name: initial.name,
+    email: initial.email,
+    preferredCurrency: initial.preferred_currency,
+    timezone: initial.timezone,
+    themePreference: initial.theme_preference,
+    budgetResetDay: initial.budget_reset_day,
+    dateFormat: initial.date_format
+  });
+  assert.equal(restored.status, 200, restored.text);
+});
+
 test('validates CSV imports and imports only usable rows', async () => {
   const missing = await authenticated('post', '/api/imports/csv', primary.token);
   assert.equal(missing.status, 400);

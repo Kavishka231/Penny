@@ -8,13 +8,13 @@ import { profileUpdateSchema } from '../validation/schemas.js';
 const router = express.Router();
 router.use(requireAuth);
 
+const returnedProfileFields = `id, name, email, phone, address, preferred_currency,
+  timezone, theme_preference, budget_reset_day, date_format, created_at`;
+
 router.get('/', async (req, res, next) => {
   try {
     const result = await query(
-      `SELECT id, name, email, phone, address, preferred_currency,
-              theme_preference, budget_reset_day, date_format, created_at
-       FROM users
-       WHERE id = $1`,
+      `SELECT ${returnedProfileFields} FROM users WHERE id = $1`,
       [req.user.id]
     );
     if (!result.rowCount) return res.status(404).json({ error: 'Profile not found' });
@@ -24,64 +24,50 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.put('/', validate(profileUpdateSchema), async (req, res, next) => {
+async function updateProfile(req, res, next) {
   try {
-    const {
-      name,
-      email,
-      password,
-      phone,
-      address,
-      preferredCurrency = 'USD',
-      themePreference = 'light',
-      budgetResetDay = 1,
-      dateFormat = 'YYYY-MM-DD'
-    } = req.body;
-    if (!name || !email) {
-      return res.status(400).json({ error: 'Name and email are required' });
+    const values = [req.user.id];
+    const fields = [];
+    const updates = { ...req.body };
+
+    if (Object.hasOwn(updates, 'currency')) {
+      updates.preferredCurrency = updates.currency;
+    }
+    if (updates.preferences) {
+      Object.assign(updates, updates.preferences);
     }
 
-    if (!['light', 'dark'].includes(themePreference)) {
-      return res.status(400).json({ error: 'Theme must be light or dark' });
-    }
-    const resetDay = Number(budgetResetDay);
-    if (!Number.isInteger(resetDay) || resetDay < 1 || resetDay > 28) {
-      return res.status(400).json({ error: 'Budget reset day must be between 1 and 28' });
-    }
+    const columnByProperty = {
+      name: 'name',
+      email: 'email',
+      phone: 'phone',
+      address: 'address',
+      preferredCurrency: 'preferred_currency',
+      timezone: 'timezone',
+      themePreference: 'theme_preference',
+      budgetResetDay: 'budget_reset_day',
+      dateFormat: 'date_format'
+    };
 
-    const params = [
-      req.user.id,
-      name,
-      email,
-      phone || null,
-      address || null,
-      preferredCurrency,
-      themePreference,
-      resetDay,
-      dateFormat
-    ];
-    let sql = `UPDATE users
-       SET name = $2,
-           email = lower($3),
-           phone = $4,
-           address = $5,
-           preferred_currency = $6,
-           theme_preference = $7,
-           budget_reset_day = $8,
-           date_format = $9`;
-
-    if (password) {
-      if (password.length < 8) {
-        return res.status(400).json({ error: 'Password must be at least 8 characters' });
-      }
-      params.push(await bcrypt.hash(password, 12));
-      sql += `, password_hash = $${params.length}`;
+    for (const [property, column] of Object.entries(columnByProperty)) {
+      if (!Object.hasOwn(updates, property)) continue;
+      values.push(updates[property]);
+      fields.push(`${column} = ${property === 'email' ? 'lower(' : ''}$${values.length}${property === 'email' ? ')' : ''}`);
     }
 
-    sql += ` WHERE id = $1
-      RETURNING id, name, email, phone, address, preferred_currency,
-                theme_preference, budget_reset_day, date_format, created_at`;
-    const result = await query(sql, params);
+    if (Object.hasOwn(updates, 'password')) {
+      values.push(await bcrypt.hash(updates.password, 12));
+      fields.push(`password_hash = $${values.length}`);
+    }
+
+    const result = await query(
+      `UPDATE users
+       SET ${fields.join(', ')}
+       WHERE id = $1
+       RETURNING ${returnedProfileFields}`,
+      values
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'Profile not found' });
     res.json(result.rows[0]);
   } catch (error) {
     if (error.code === '23505') {
@@ -89,6 +75,9 @@ router.put('/', validate(profileUpdateSchema), async (req, res, next) => {
     }
     next(error);
   }
-});
+}
+
+router.patch('/', validate(profileUpdateSchema), updateProfile);
+router.put('/', validate(profileUpdateSchema), updateProfile);
 
 export default router;

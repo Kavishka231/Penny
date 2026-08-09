@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone TEXT,
   address TEXT,
   preferred_currency TEXT NOT NULL DEFAULT 'USD',
+  timezone TEXT NOT NULL DEFAULT 'UTC',
   theme_preference TEXT NOT NULL DEFAULT 'light' CHECK (theme_preference IN ('light', 'dark')),
   budget_reset_day INTEGER NOT NULL DEFAULT 1 CHECK (budget_reset_day BETWEEN 1 AND 28),
   date_format TEXT NOT NULL DEFAULT 'YYYY-MM-DD',

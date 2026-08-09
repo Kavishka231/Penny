@@ -55,12 +55,31 @@ const profileFieldsSchema = z.object({
 	phone: z.string().min(1, 'Phone must not be empty'),
 	address: z.string().min(1, 'Address must not be empty'),
 	preferredCurrency: z.string().min(1, 'Preferred currency must not be empty'),
+	currency: z.string().min(1, 'Currency must not be empty'),
+	timezone: z.string().min(1, 'Timezone must not be empty').refine((value) => {
+		try {
+			Intl.DateTimeFormat(undefined, { timeZone: value });
+			return true;
+		} catch {
+			return false;
+		}
+	}, 'Timezone must be a valid IANA timezone'),
 	themePreference: z.enum(['light', 'dark']),
 	budgetResetDay: z.number().int().min(1).max(28),
 	dateFormat: z.string().min(1, 'Date format must not be empty'),
+	preferences: z.object({
+		themePreference: z.enum(['light', 'dark']).optional(),
+		budgetResetDay: z.number().int().min(1).max(28).optional(),
+		dateFormat: z.string().min(1, 'Date format must not be empty').optional(),
+	}).strict().refine((value) => Object.keys(value).length > 0, {
+		message: 'At least one preference is required',
+	}),
 }).strict();
 
-export const profileUpdateSchema = profileFieldsSchema.partial();
+export const profileUpdateSchema = profileFieldsSchema.partial().refine(
+	(value) => Object.keys(value).length > 0,
+	{ message: 'At least one profile field is required' },
+);
 
 export const transactionCreateSchema = z.object({
 	description: z.string().min(1, 'Description is required').transform((v) => v.trim()).refine((v) => v.length > 0, {

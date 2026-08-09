@@ -91,7 +91,7 @@ Negative amounts are treated as expenses. Positive amounts default to income unl
 - `GET /api/reports/transactions.csv`
 - `GET /api/alerts`
 - `GET /api/profile`
-- `PUT /api/profile`
+- `PATCH /api/profile` (`PUT` remains supported for compatibility)
 
 ## Project Structure
 
