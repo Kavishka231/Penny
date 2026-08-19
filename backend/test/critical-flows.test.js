@@ -98,6 +98,13 @@ test('reports database health and applies browser security policy', async () => 
   assert.equal(trustedOrigin.headers['access-control-allow-credentials'], 'true');
 });
 
+test('returns a JSON 404 for unknown API endpoints', async () => {
+  const response = await request(app).get('/api/does-not-exist');
+  assert.equal(response.status, 404, response.text);
+  assert.equal(response.type, 'application/json');
+  assert.deepEqual(response.body, { error: 'API endpoint not found' });
+});
+
 test('logs in with valid credentials and rejects an invalid login', async () => {
   const valid = await request(app)
     .post('/api/auth/login')

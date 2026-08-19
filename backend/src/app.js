@@ -91,15 +91,22 @@ app.use('/api/alerts', alertRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/recurring', recurringRoutes);
 
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'API endpoint not found' });
+});
+
 app.use(express.static(publicDir));
 app.get('*', (_req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 app.use((error, _req, res, _next) => {
-  console.error(error);
-  res.status(error.status || 500).json({
-    error: error.message || 'Unexpected server error'
+  const status = Number.isInteger(error.status) ? error.status : 500;
+  if (status >= 500) console.error(error);
+  res.status(status).json({
+    error: status >= 500 && production
+      ? 'Unexpected server error'
+      : error.message || 'Unexpected server error'
   });
 });
 
