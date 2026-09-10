@@ -336,10 +336,122 @@ test('creates, edits, reads, and deletes a transaction', async () => {
 
   const list = await authenticated('get', '/api/transactions', primary.cookie);
   assert.equal(list.status, 200, list.text);
-  assert.ok(list.body.some((transaction) => transaction.id === created.body.id));
+  assert.ok(list.body.transactions.some((transaction) => transaction.id === created.body.id));
 
   const deleted = await authenticated('delete', `/api/transactions/${created.body.id}`, primary.cookie);
   assert.equal(deleted.status, 204, deleted.text);
+});
+
+test('paginates transactions with filters, totals, boundaries, and deterministic ordering', async () => {
+  const fixtureName = 'Pagination fixture';
+  const fixtureIds = [];
+
+  for (let index = 1; index <= 32; index += 1) {
+    const id = `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+    fixtureIds.push(id);
+    await pool.query(
+      `INSERT INTO transactions
+         (id, user_id, type, merchant, amount, transaction_date, created_at)
+       VALUES ($1, $2, $3, $4, $5, '2020-01-15', '2020-01-15T12:00:00Z')`,
+      [
+        id,
+        primary.user.id,
+        index % 2 === 0 ? 'income' : 'expense',
+        `${fixtureName} ${String(index).padStart(2, '0')}`,
+        index
+      ]
+    );
+  }
+
+  const search = encodeURIComponent(fixtureName);
+  const firstPage = await authenticated('get', `/api/transactions?search=${search}`, primary.cookie);
+  assert.equal(firstPage.status, 200, firstPage.text);
+  assert.equal(firstPage.body.transactions.length, 25);
+  assert.deepEqual(firstPage.body.pagination, {
+    page: 1,
+    limit: 25,
+    total: 32,
+    totalPages: 2,
+    hasNext: true,
+    hasPrevious: false
+  });
+
+  const secondPage = await authenticated('get', `/api/transactions?search=${search}&page=2`, primary.cookie);
+  assert.equal(secondPage.status, 200, secondPage.text);
+  assert.equal(secondPage.body.transactions.length, 7);
+  assert.deepEqual(secondPage.body.pagination, {
+    page: 2,
+    limit: 25,
+    total: 32,
+    totalPages: 2,
+    hasNext: false,
+    hasPrevious: true
+  });
+
+  const customLimit = await authenticated('get', `/api/transactions?search=${search}&page=2&limit=10`, primary.cookie);
+  assert.equal(customLimit.status, 200, customLimit.text);
+  assert.equal(customLimit.body.transactions.length, 10);
+  assert.equal(customLimit.body.pagination.totalPages, 4);
+
+  const lastPage = await authenticated('get', `/api/transactions?search=${search}&page=4&limit=10`, primary.cookie);
+  assert.equal(lastPage.status, 200, lastPage.text);
+  assert.equal(lastPage.body.transactions.length, 2);
+  assert.deepEqual(lastPage.body.pagination, {
+    page: 4,
+    limit: 10,
+    total: 32,
+    totalPages: 4,
+    hasNext: false,
+    hasPrevious: true
+  });
+
+  const beyondLastPage = await authenticated('get', `/api/transactions?search=${search}&page=9&limit=10`, primary.cookie);
+  assert.equal(beyondLastPage.status, 200, beyondLastPage.text);
+  assert.deepEqual(beyondLastPage.body.transactions, []);
+  assert.deepEqual(beyondLastPage.body.pagination, {
+    page: 9,
+    limit: 10,
+    total: 32,
+    totalPages: 4,
+    hasNext: false,
+    hasPrevious: true
+  });
+
+  const filtered = await authenticated(
+    'get',
+    `/api/transactions?search=${search}&type=income&limit=10`,
+    primary.cookie
+  );
+  assert.equal(filtered.status, 200, filtered.text);
+  assert.equal(filtered.body.pagination.total, 16);
+  assert.equal(filtered.body.pagination.totalPages, 2);
+  assert.ok(filtered.body.transactions.every((transaction) => transaction.type === 'income'));
+
+  const maximumLimit = await authenticated('get', `/api/transactions?search=${search}&limit=100`, primary.cookie);
+  assert.equal(maximumLimit.status, 200, maximumLimit.text);
+  assert.equal(maximumLimit.body.pagination.limit, 100);
+  assert.equal(maximumLimit.body.transactions.length, 32);
+
+  const expectedOrder = [...fixtureIds].reverse().slice(0, 25);
+  assert.deepEqual(firstPage.body.transactions.map((transaction) => transaction.id), expectedOrder);
+});
+
+test('rejects invalid transaction pagination values', async () => {
+  for (const queryString of [
+    'page=0',
+    'page=-1',
+    'page=1.5',
+    'page=invalid',
+    'limit=0',
+    'limit=-1',
+    'limit=1.5',
+    'limit=invalid',
+    'limit=101'
+  ]) {
+    const response = await authenticated('get', `/api/transactions?${queryString}`, primary.cookie);
+    assert.equal(response.status, 400, `${queryString}: ${response.text}`);
+    assert.equal(response.body.error, 'Validation failed');
+  }
 });
 
 test('patches only the supplied transaction fields', async () => {
@@ -416,7 +528,7 @@ test('patches only the supplied transaction fields', async () => {
   assert.equal(emptyPatch.status, 400, emptyPatch.text);
 
   const afterRejectedPatches = await authenticated('get', '/api/transactions', primary.cookie);
-  const unchanged = afterRejectedPatches.body.find((transaction) => transaction.id === created.body.id);
+  const unchanged = afterRejectedPatches.body.transactions.find((transaction) => transaction.id === created.body.id);
   assert.equal(Number(unchanged.amount), 725.5);
   assert.equal(unchanged.merchant, 'Multi-field merchant');
   assert.equal(unchanged.category_id, expenseCategories[1].id);
@@ -438,7 +550,7 @@ test('prevents one user from reading, editing, or deleting another user transact
 
   const secondaryList = await authenticated('get', '/api/transactions', secondary.cookie);
   assert.equal(secondaryList.status, 200, secondaryList.text);
-  assert.equal(secondaryList.body.some((transaction) => transaction.id === created.body.id), false);
+  assert.equal(secondaryList.body.transactions.some((transaction) => transaction.id === created.body.id), false);
 
   const edit = await authenticated('put', `/api/transactions/${created.body.id}`, secondary.cookie)
     .send({
@@ -453,7 +565,7 @@ test('prevents one user from reading, editing, or deleting another user transact
   assert.equal(remove.status, 404, remove.text);
 
   const ownerList = await authenticated('get', '/api/transactions', primary.cookie);
-  assert.ok(ownerList.body.some((transaction) => transaction.id === created.body.id));
+  assert.ok(ownerList.body.transactions.some((transaction) => transaction.id === created.body.id));
 });
 
 test('rejects cross-user categories across transactions, budgets, and recurring data', async () => {

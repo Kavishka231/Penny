@@ -14,9 +14,20 @@ const state = {
   csrfToken: null,
   categories: [],
   transactions: [],
+  transactionPagination: {
+    page: 1,
+    limit: 25,
+    total: 0,
+    totalPages: 0,
+    hasNext: false,
+    hasPrevious: false
+  },
   recurringTransactions: [],
   charts: {}
 };
+
+let transactionRequestController;
+let transactionFilterTimer;
 
 const themeToggle = document.querySelector('.theme-toggle');
 const savedTheme = localStorage.getItem('penny_theme') || 'light';
@@ -241,9 +252,11 @@ function drawChart(id, type, data) {
   });
 }
 
-function transactionQuery() {
+function transactionQuery(page = state.transactionPagination.page) {
   const params = new URLSearchParams();
   const values = {
+    page,
+    limit: state.transactionPagination.limit,
     search: document.querySelector('#search')?.value,
     type: document.querySelector('#filter-type')?.value,
     categoryId: document.querySelector('#filter-category')?.value,
@@ -260,9 +273,19 @@ function transactionQuery() {
   return query ? `?${query}` : '';
 }
 
-async function loadTransactions() {
-  const rows = await api(`/transactions${transactionQuery()}`);
-  document.querySelector('#transaction-table').innerHTML = rows.map((row) => `
+function renderTransactionPagination(loading = false) {
+  const pagination = state.transactionPagination;
+  const pageLabel = pagination.totalPages
+    ? `Page ${pagination.page} of ${pagination.totalPages}`
+    : 'Page 0 of 0';
+  document.querySelector('#transaction-page-summary').textContent = pageLabel;
+  document.querySelector('#transaction-total').textContent = `${pagination.total} transaction${pagination.total === 1 ? '' : 's'}`;
+  document.querySelector('#transaction-previous').disabled = loading || !pagination.hasPrevious;
+  document.querySelector('#transaction-next').disabled = loading || !pagination.hasNext;
+}
+
+function renderTransactions(rows) {
+  document.querySelector('#transaction-table').innerHTML = rows.length ? rows.map((row) => `
     <tr>
       <td>${escapeHtml(row.transaction_date.slice(0, 10))}</td>
       <td>${escapeHtml(row.merchant)}</td>
@@ -274,8 +297,50 @@ async function loadTransactions() {
         <button class="ghost" data-delete="${escapeHtml(row.id)}">Delete</button>
       </td>
     </tr>
-  `).join('');
-  state.transactions = rows;
+  `).join('') : '<tr><td colspan="6" class="empty-state">No transactions match these filters.</td></tr>';
+}
+
+async function loadTransactions(page = state.transactionPagination.page) {
+  transactionRequestController?.abort();
+  const controller = new AbortController();
+  transactionRequestController = controller;
+  setStatus('#transaction-status', 'Loading transactions...');
+  renderTransactionPagination(true);
+
+  try {
+    const payload = await api(`/transactions${transactionQuery(page)}`, { signal: controller.signal });
+    if (transactionRequestController !== controller) return;
+    if (payload.pagination.totalPages > 0 && page > payload.pagination.totalPages) {
+      await loadTransactions(payload.pagination.totalPages);
+      return;
+    }
+
+    const rows = payload.transactions;
+    state.transactionPagination = payload.pagination;
+    state.transactions = rows;
+    renderTransactions(rows);
+    renderTransactionPagination();
+
+    const first = rows.length ? ((payload.pagination.page - 1) * payload.pagination.limit) + 1 : 0;
+    const last = rows.length ? first + rows.length - 1 : 0;
+    setStatus(
+      '#transaction-status',
+      rows.length
+        ? `Showing ${first}-${last} of ${payload.pagination.total} transactions.`
+        : 'No transactions found.'
+    );
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+    if (transactionRequestController !== controller) return;
+    state.transactions = [];
+    renderTransactions([]);
+    setStatus('#transaction-status', error.message, true);
+    renderTransactionPagination();
+  } finally {
+    if (transactionRequestController === controller) {
+      transactionRequestController = null;
+    }
+  }
 }
 
 async function loadRecurringTransactions() {
@@ -463,7 +528,11 @@ document.querySelector('#transaction-form').addEventListener('submit', async (ev
     document.querySelector('[name="transactionDate"]').value = today;
     document.querySelector('#transaction-form button[type="submit"]').textContent = 'Add transaction';
     document.querySelector('#cancel-edit-btn').classList.add('hidden');
-    await Promise.all([loadDashboard(), loadTransactions(), loadBudgets()]);
+    await Promise.all([
+      loadDashboard(),
+      loadTransactions(editing ? state.transactionPagination.page : 1),
+      loadBudgets()
+    ]);
   } catch (error) {
     alert(error.message);
   } finally {
@@ -520,18 +589,32 @@ document.querySelector('#cancel-edit-btn').addEventListener('click', () => {
 });
 
 document.querySelector('#search').addEventListener('input', () => {
-  loadTransactions();
+  clearTimeout(transactionFilterTimer);
+  transactionFilterTimer = setTimeout(() => loadTransactions(1), 250);
 });
 
 ['#filter-type', '#filter-category', '#filter-from', '#filter-to', '#filter-min', '#filter-max'].forEach((selector) => {
-  document.querySelector(selector).addEventListener('input', () => loadTransactions());
+  document.querySelector(selector).addEventListener('change', () => loadTransactions(1));
 });
 
 document.querySelector('#clear-filters-btn').addEventListener('click', () => {
+  clearTimeout(transactionFilterTimer);
   ['#search', '#filter-type', '#filter-category', '#filter-from', '#filter-to', '#filter-min', '#filter-max'].forEach((selector) => {
     document.querySelector(selector).value = '';
   });
-  loadTransactions();
+  loadTransactions(1);
+});
+
+document.querySelector('#transaction-previous').addEventListener('click', () => {
+  if (state.transactionPagination.hasPrevious) {
+    loadTransactions(state.transactionPagination.page - 1);
+  }
+});
+
+document.querySelector('#transaction-next').addEventListener('click', () => {
+  if (state.transactionPagination.hasNext) {
+    loadTransactions(state.transactionPagination.page + 1);
+  }
 });
 
 document.querySelector('#budget-form').addEventListener('submit', async (event) => {
@@ -586,7 +669,7 @@ document.querySelector('#csv-form').addEventListener('submit', async (event) => 
   try {
     const result = await api('/imports/csv', { method: 'POST', body: new FormData(event.currentTarget) });
     document.querySelector('#csv-result').textContent = `Imported ${result.inserted} transactions.`;
-    await Promise.all([loadDashboard(), loadTransactions(), loadBudgets()]);
+    await Promise.all([loadDashboard(), loadTransactions(1), loadBudgets()]);
   } catch (error) {
     document.querySelector('#csv-result').textContent = error.message;
   } finally {

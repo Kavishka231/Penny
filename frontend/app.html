@@ -114,6 +114,15 @@
                 <tbody id="transaction-table"></tbody>
               </table>
             </div>
+            <div id="transaction-pagination" class="pagination" aria-label="Transaction pages">
+              <button id="transaction-previous" class="secondary" type="button" disabled>Previous</button>
+              <div class="pagination-summary" aria-live="polite">
+                <strong id="transaction-page-summary">Page 0 of 0</strong>
+                <span id="transaction-total">0 transactions</span>
+              </div>
+              <button id="transaction-next" class="secondary" type="button" disabled>Next</button>
+            </div>
+            <p id="transaction-status" class="status-message" aria-live="polite"></p>
           </section>
 
           <section id="recurring" class="view">

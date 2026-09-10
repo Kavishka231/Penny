@@ -433,6 +433,25 @@ h1 {
   text-align: center;
 }
 
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.pagination-summary {
+  display: grid;
+  min-width: 9rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.pagination-summary strong {
+  color: var(--ink);
+}
+
 .muted-text {
   color: var(--muted);
 }
@@ -649,6 +668,7 @@ pre {
 
   .topbar,
   .toolbar,
+  .pagination,
   .form-row {
     align-items: stretch;
     flex-direction: column;

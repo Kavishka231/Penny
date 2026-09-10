@@ -128,6 +128,32 @@ test('uses the real API for critical authenticated finance flows', { timeout: 90
     .getAttribute('value');
   assert.ok(expenseCategoryId, 'Expected registration to create expense categories');
 
+  const owner = await pool.query('SELECT id FROM users WHERE email = $1', [ownerEmail]);
+  const paginationMerchant = 'Browser pagination fixture';
+  await Promise.all(Array.from({ length: 26 }, (_, index) => pool.query(
+    `INSERT INTO transactions (user_id, type, merchant, amount, transaction_date)
+     VALUES ($1, 'expense', $2, $3, '2020-01-15')`,
+    [owner.rows[0].id, `${paginationMerchant} ${String(index + 1).padStart(2, '0')}`, index + 1]
+  )));
+
+  await openView('transactions');
+  await page.locator('#search').fill(paginationMerchant);
+  await page.locator('#transaction-page-summary').getByText('Page 1 of 2', { exact: true }).waitFor();
+  assert.equal(await page.locator('#transaction-table tr').count(), 25);
+  assert.equal(await page.locator('#transaction-page-summary').textContent(), 'Page 1 of 2');
+  assert.equal(await page.locator('#transaction-previous').isDisabled(), true);
+  assert.equal(await page.locator('#transaction-next').isEnabled(), true);
+
+  await page.locator('#transaction-next').click();
+  await page.locator('#transaction-page-summary').getByText('Page 2 of 2', { exact: true }).waitFor();
+  assert.equal(await page.locator('#transaction-table tr').count(), 1);
+  assert.equal(await page.locator('#transaction-page-summary').textContent(), 'Page 2 of 2');
+  assert.equal(await page.locator('#transaction-previous').isEnabled(), true);
+  assert.equal(await page.locator('#transaction-next').isDisabled(), true);
+
+  await page.locator('#clear-filters-btn').click();
+  await page.locator('#transaction-page-summary').getByText('Page 1 of 2', { exact: true }).waitFor();
+
   await createTransaction({
     merchant: 'Browser Merchant',
     amount: 42.50,

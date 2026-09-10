@@ -100,6 +100,8 @@ export const transactionUpdateSchema = transactionCreateSchema.partial().refine(
 );
 
 export const transactionQuerySchema = z.object({
+	page: z.coerce.number().int().min(1).default(1),
+	limit: z.coerce.number().int().min(1).max(100).default(25),
 	type: z.enum(['income', 'expense']).optional(),
 	categoryId: z.uuid().optional(),
 	from: z.coerce.date().optional(),

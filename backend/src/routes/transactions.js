@@ -41,16 +41,41 @@ function filters(req) {
 router.get('/', validateQuery(transactionQuerySchema), async (req, res, next) => {
   try {
     const { clauses, params } = filters(req);
-    const result = await query(
+    const page = req.query.page;
+    const limit = req.query.limit;
+    const offset = (page - 1) * limit;
+    const [countResult, transactionResult] = await Promise.all([
+      query(
+        `SELECT COUNT(*) AS total
+         FROM transactions t
+         WHERE ${clauses.join(' AND ')}`,
+        params
+      ),
+      query(
       `SELECT t.*, c.name AS category_name, c.color AS category_color
        FROM transactions t
        LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
        WHERE ${clauses.join(' AND ')}
-       ORDER BY t.transaction_date DESC, t.created_at DESC
-       LIMIT 250`,
-      params
-    );
-    res.json(result.rows);
+       ORDER BY t.transaction_date DESC, t.created_at DESC, t.id DESC
+       LIMIT $${params.length + 1}
+       OFFSET $${params.length + 2}`,
+        [...params, limit, offset]
+      )
+    ]);
+    const total = Number(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+
+    res.json({
+      transactions: transactionResult.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrevious: page > 1
+      }
+    });
   } catch (error) {
     next(error);
   }
