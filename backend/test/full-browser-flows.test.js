@@ -2,6 +2,7 @@ import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
+import { dateInputValue, formatDate } from '../../frontend/date-preferences.js';
 
 const browserPath = process.env.E2E_BROWSER_PATH
   || (process.platform === 'win32'
@@ -128,6 +129,15 @@ test('uses the real API for critical authenticated finance flows', { timeout: 90
     .getAttribute('value');
   assert.ok(expenseCategoryId, 'Expected registration to create expense categories');
 
+  await openView('profile');
+  await page.locator('#profile-form [name="timezone"]').fill('Asia/Colombo');
+  await page.locator('#profile-form [name="dateFormat"]').selectOption('DD/MM/YYYY');
+  await page.locator('#profile-form [name="budgetResetDay"]').fill('15');
+  await page.locator('#profile-form button[type="submit"]').click();
+  await page.locator('#profile-result').getByText('Profile saved successfully.').waitFor();
+  const expectedLocalDate = dateInputValue(new Date(), 'Asia/Colombo');
+  assert.equal(await page.locator('[name="transactionDate"]').inputValue(), expectedLocalDate);
+
   const owner = await pool.query('SELECT id FROM users WHERE email = $1', [ownerEmail]);
   const paginationMerchant = 'Browser pagination fixture';
   await Promise.all(Array.from({ length: 26 }, (_, index) => pool.query(
@@ -159,6 +169,11 @@ test('uses the real API for critical authenticated finance flows', { timeout: 90
     amount: 42.50,
     categoryId: expenseCategoryId
   });
+  const createdTransactionRow = page.locator('#transaction-table tr', { hasText: 'Browser Merchant' });
+  assert.equal(
+    await createdTransactionRow.locator('td').first().textContent(),
+    formatDate(expectedLocalDate, 'DD/MM/YYYY')
+  );
   await page.locator('#transaction-table [data-edit]').first().click();
   await page.locator('#transaction-form [name="merchant"]').fill('Edited Browser Merchant');
   await page.locator('#transaction-form button[type="submit"]').click();

@@ -53,6 +53,7 @@ export function profilePayload(values) {
     name: data.name,
     email: data.email,
     preferredCurrency: data.preferredCurrency,
+    timezone: data.timezone,
     themePreference: data.themePreference,
     budgetResetDay: Number(data.budgetResetDay),
     dateFormat: data.dateFormat

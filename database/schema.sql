@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
   preferred_currency TEXT NOT NULL DEFAULT 'USD',
   timezone TEXT NOT NULL DEFAULT 'UTC',
   theme_preference TEXT NOT NULL DEFAULT 'light' CHECK (theme_preference IN ('light', 'dark')),
-  budget_reset_day INTEGER NOT NULL DEFAULT 1 CHECK (budget_reset_day BETWEEN 1 AND 28),
-  date_format TEXT NOT NULL DEFAULT 'YYYY-MM-DD',
+  budget_reset_day INTEGER NOT NULL DEFAULT 1 CHECK (budget_reset_day BETWEEN 1 AND 31),
+  date_format TEXT NOT NULL DEFAULT 'YYYY-MM-DD' CHECK (date_format IN ('YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY')),
   reset_password_token_hash TEXT,
   reset_password_expires TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

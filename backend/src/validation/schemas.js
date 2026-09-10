@@ -21,6 +21,8 @@ const monthString = z
 		message: 'Month must be a valid date or YYYY-MM',
 	});
 
+const dateFormat = z.enum(['YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY']);
+
 export const registerSchema = z.object({
 	name: z.string().min(1, 'Name is required'),
 	email: z.email('A valid email is required'),
@@ -65,12 +67,12 @@ const profileFieldsSchema = z.object({
 		}
 	}, 'Timezone must be a valid IANA timezone'),
 	themePreference: z.enum(['light', 'dark']),
-	budgetResetDay: z.number().int().min(1).max(28),
-	dateFormat: z.string().min(1, 'Date format must not be empty'),
+	budgetResetDay: z.number().int().min(1).max(31),
+	dateFormat,
 	preferences: z.object({
 		themePreference: z.enum(['light', 'dark']).optional(),
-		budgetResetDay: z.number().int().min(1).max(28).optional(),
-		dateFormat: z.string().min(1, 'Date format must not be empty').optional(),
+		budgetResetDay: z.number().int().min(1).max(31).optional(),
+		dateFormat: dateFormat.optional(),
 	}).strict().refine((value) => Object.keys(value).length > 0, {
 		message: 'At least one preference is required',
 	}),

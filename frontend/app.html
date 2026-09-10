@@ -201,6 +201,15 @@
                 <input name="email" type="email" placeholder="Email address" required>
                 <input name="phone" placeholder="Phone number">
                 <input name="address" placeholder="Address">
+                <input name="timezone" list="timezone-options" placeholder="IANA timezone" required>
+                <datalist id="timezone-options">
+                  <option value="UTC"></option>
+                  <option value="Asia/Colombo"></option>
+                  <option value="Europe/London"></option>
+                  <option value="America/New_York"></option>
+                  <option value="America/Los_Angeles"></option>
+                  <option value="Pacific/Auckland"></option>
+                </datalist>
                 <select name="preferredCurrency" aria-label="Preferred currency">
                   <option value="USD">USD - US Dollar</option>
                   <option value="LKR">LKR - Sri Lankan Rupee</option>
@@ -212,7 +221,7 @@
                   <option value="light">Light mode</option>
                   <option value="dark">Dark mode</option>
                 </select>
-                <input name="budgetResetDay" type="number" min="1" max="28" placeholder="Budget reset day">
+                <input name="budgetResetDay" type="number" min="1" max="31" placeholder="Budget reset day">
                 <select name="dateFormat" aria-label="Preferred date format">
                   <option value="YYYY-MM-DD">YYYY-MM-DD</option>
                   <option value="DD/MM/YYYY">DD/MM/YYYY</option>

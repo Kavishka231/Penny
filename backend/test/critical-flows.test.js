@@ -15,6 +15,10 @@ let processDueRecurring;
 let buildBudgetAlert;
 let hashResetToken;
 let mayExposeResetToken;
+let budgetPeriodForMonth;
+let calendarMonthPeriod;
+let currentBudgetPeriod;
+let recentCalendarMonths;
 let primary;
 let secondary;
 let validResetToken;
@@ -60,6 +64,12 @@ before(async () => {
   ({ processDueRecurring } = await import('../src/services/recurringService.js'));
   ({ buildBudgetAlert } = await import('../src/routes/alerts.js'));
   ({ hashResetToken, mayExposeResetToken } = await import('../src/services/passwordResetService.js'));
+  ({
+    budgetPeriodForMonth,
+    calendarMonthPeriod,
+    currentBudgetPeriod,
+    recentCalendarMonths
+  } = await import('../src/lib/financePeriods.js'));
 });
 
 after(async () => {
@@ -96,6 +106,57 @@ test('reports database health and applies browser security policy', async () => 
     .get('/api/health')
     .set('Origin', 'https://trusted.penny.test');
   assert.equal(trustedOrigin.headers['access-control-allow-credentials'], 'true');
+});
+
+test('calculates timezone-aware calendar periods across month and year boundaries', () => {
+  const instant = new Date('2026-01-01T00:30:00Z');
+  assert.deepEqual(calendarMonthPeriod('America/New_York', instant), {
+    key: '2025-12-01',
+    start: '2025-12-01',
+    end: '2026-01-01'
+  });
+  assert.deepEqual(calendarMonthPeriod('Pacific/Kiritimati', instant), {
+    key: '2026-01-01',
+    start: '2026-01-01',
+    end: '2026-02-01'
+  });
+  assert.deepEqual(
+    recentCalendarMonths('America/New_York', instant, 3).map(({ key }) => key),
+    ['2025-10', '2025-11', '2025-12']
+  );
+});
+
+test('calculates reset-day budget periods and clamps shorter months', () => {
+  assert.deepEqual(currentBudgetPeriod('UTC', 1, new Date('2026-03-01T12:00:00Z')), {
+    key: '2026-03-01',
+    start: '2026-03-01',
+    end: '2026-04-01'
+  });
+  assert.deepEqual(currentBudgetPeriod('UTC', 15, new Date('2026-01-10T12:00:00Z')), {
+    key: '2025-12-01',
+    start: '2025-12-15',
+    end: '2026-01-15'
+  });
+  assert.deepEqual(currentBudgetPeriod('UTC', 15, new Date('2026-01-15T00:00:00Z')), {
+    key: '2026-01-01',
+    start: '2026-01-15',
+    end: '2026-02-15'
+  });
+  assert.deepEqual(currentBudgetPeriod('UTC', 28, new Date('2025-03-01T12:00:00Z')), {
+    key: '2025-02-01',
+    start: '2025-02-28',
+    end: '2025-03-28'
+  });
+  assert.deepEqual(budgetPeriodForMonth('2025-02', 31), {
+    key: '2025-02-01',
+    start: '2025-02-28',
+    end: '2025-03-31'
+  });
+  assert.deepEqual(budgetPeriodForMonth('2024-02', 31), {
+    key: '2024-02-01',
+    start: '2024-02-29',
+    end: '2024-03-31'
+  });
 });
 
 test('returns a JSON 404 for unknown API endpoints', async () => {
@@ -703,6 +764,49 @@ test('creates a budget and reports its near-limit warning', async () => {
   assert.equal(warning.status, 'warning');
   assert.equal(warning.percent, 85);
   assert.equal(warning.remaining, 15);
+});
+
+test('uses the same reset-day period for budgets and alerts', async () => {
+  const profile = await authenticated('get', '/api/profile', primary.cookie);
+  const categories = await authenticated('get', '/api/categories', primary.cookie);
+  const categoryId = categories.body.find((category) => category.type === 'expense').id;
+
+  const updatedProfile = await authenticated('patch', '/api/profile', primary.cookie)
+    .send({ budgetResetDay: 15 });
+  assert.equal(updatedProfile.status, 200, updatedProfile.text);
+
+  const budget = await authenticated('post', '/api/budgets', primary.cookie)
+    .send({ category_id: categoryId, month: '2024-02', monthly_limit: 50 });
+  assert.equal(budget.status, 201, budget.text);
+
+  for (const [date, amount] of [
+    ['2024-02-14', 10],
+    ['2024-02-15', 20],
+    ['2024-03-14', 30],
+    ['2024-03-15', 40]
+  ]) {
+    await pool.query(
+      `INSERT INTO transactions (user_id, category_id, type, merchant, amount, transaction_date)
+       VALUES ($1, $2, 'expense', 'Reset period fixture', $3, $4)`,
+      [primary.user.id, categoryId, amount, date]
+    );
+  }
+
+  const budgets = await authenticated('get', '/api/budgets?month=2024-02', primary.cookie);
+  assert.equal(budgets.status, 200, budgets.text);
+  const periodBudget = budgets.body.find((row) => row.id === budget.body.id);
+  assert.equal(Number(periodBudget.spent), 50);
+  assert.equal(Number(periodBudget.remaining), 0);
+
+  const alerts = await authenticated('get', '/api/alerts?month=2024-02', primary.cookie);
+  assert.equal(alerts.status, 200, alerts.text);
+  const periodAlert = alerts.body.find((row) => row.id === budget.body.id);
+  assert.equal(Number(periodAlert.spent), 50);
+  assert.equal(periodAlert.percent, 100);
+
+  const restored = await authenticated('patch', '/api/profile', primary.cookie)
+    .send({ budgetResetDay: profile.body.budget_reset_day });
+  assert.equal(restored.status, 200, restored.text);
 });
 
 test('processes a due recurring transaction exactly once per run date', async () => {

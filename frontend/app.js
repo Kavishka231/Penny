@@ -6,6 +6,7 @@ import {
   resetPasswordPayload,
   transactionPayload
 } from './api-contract.js';
+import { budgetMonthValue, dateInputValue, formatDate } from './date-preferences.js';
 import { escapeHtml } from './safe-html.js';
 
 const state = {
@@ -22,6 +23,9 @@ const state = {
     hasNext: false,
     hasPrevious: false
   },
+  timeZone: null,
+  dateFormat: 'YYYY-MM-DD',
+  budgetResetDay: 1,
   recurringTransactions: [],
   charts: {}
 };
@@ -47,8 +51,8 @@ themeToggle?.addEventListener('click', () => {
 });
 
 let money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-const today = new Date().toISOString().slice(0, 10);
-const thisMonth = today.slice(0, 7);
+let today = dateInputValue();
+let thisMonth = budgetMonthValue(today, state.budgetResetDay);
 
 function applyResetTokenFromUrl() {
   const url = new URL(window.location.href);
@@ -287,7 +291,7 @@ function renderTransactionPagination(loading = false) {
 function renderTransactions(rows) {
   document.querySelector('#transaction-table').innerHTML = rows.length ? rows.map((row) => `
     <tr>
-      <td>${escapeHtml(row.transaction_date.slice(0, 10))}</td>
+      <td>${escapeHtml(formatDate(row.transaction_date, state.dateFormat))}</td>
       <td>${escapeHtml(row.merchant)}</td>
       <td>${escapeHtml(row.category_name || 'Uncategorized')}</td>
       <td>${escapeHtml(row.type)}</td>
@@ -352,7 +356,7 @@ async function loadRecurringTransactions() {
       <td>${escapeHtml(row.category_name || 'Uncategorized')}</td>
       <td>${escapeHtml(row.frequency)}</td>
       <td class="amount-${escapeHtml(row.type)}">${row.type === 'expense' ? '-' : '+'}${escapeHtml(money.format(row.amount))}</td>
-      <td>${escapeHtml(row.next_run_date.slice(0, 10))}</td>
+      <td>${escapeHtml(formatDate(row.next_run_date, state.dateFormat))}</td>
       <td>${row.is_active ? 'Active' : 'Paused'}</td>
       <td class="table-actions">
         <button class="ghost" data-recurring-toggle="${escapeHtml(row.id)}">${row.is_active ? 'Pause' : 'Resume'}</button>
@@ -697,6 +701,7 @@ async function loadProfile() {
   form.elements.email.value = profile.email;
   form.elements.phone.value = profile.phone || '';
   form.elements.address.value = profile.address || '';
+  form.elements.timezone.value = profile.timezone || 'UTC';
   form.elements.preferredCurrency.value = profile.preferred_currency || 'USD';
   form.elements.themePreference.value = localStorage.getItem('penny_theme') || profile.theme_preference || 'light';
   form.elements.budgetResetDay.value = profile.budget_reset_day || 1;
@@ -705,7 +710,19 @@ async function loadProfile() {
     style: 'currency',
     currency: profile.preferred_currency || 'USD'
   });
+  applyDatePreferences(profile);
   document.querySelector('#profile-initials').textContent = initialsFor(profile.name);
+}
+
+function applyDatePreferences(profile) {
+  state.timeZone = profile.timezone || 'UTC';
+  state.dateFormat = profile.date_format || 'YYYY-MM-DD';
+  state.budgetResetDay = Number(profile.budget_reset_day) || 1;
+  today = dateInputValue(new Date(), state.timeZone);
+  thisMonth = budgetMonthValue(today, state.budgetResetDay);
+  document.querySelector('[name="transactionDate"]').value = today;
+  document.querySelector('[name="startDate"]').value = today;
+  document.querySelector('[name="month"]').value = thisMonth;
 }
 
 function initialsFor(name = 'Penny User') {
@@ -725,7 +742,14 @@ document.querySelector('#profile-form').addEventListener('submit', async (event)
     state.user = { ...state.user, name: profile.name, email: profile.email };
     document.querySelector('#user-label').textContent = profile.name;
     setTheme(profile.theme_preference || data.themePreference);
+    applyDatePreferences(profile);
     document.querySelector('#profile-initials').textContent = initialsFor(profile.name);
+    await Promise.all([
+      loadDashboard(),
+      loadTransactions(state.transactionPagination.page),
+      loadRecurringTransactions(),
+      loadBudgets()
+    ]);
     result.textContent = 'Profile saved successfully.';
   } catch (error) {
     result.classList.add('error');

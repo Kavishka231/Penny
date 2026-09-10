@@ -77,6 +77,7 @@ test('converts profile numbers and omits optional blank fields', () => {
     phone: '',
     address: '',
     preferredCurrency: 'LKR',
+    timezone: 'Asia/Colombo',
     themePreference: 'dark',
     budgetResetDay: '5',
     dateFormat: 'DD/MM/YYYY',
@@ -85,6 +86,7 @@ test('converts profile numbers and omits optional blank fields', () => {
     name: 'Penny User',
     email: 'penny@example.com',
     preferredCurrency: 'LKR',
+    timezone: 'Asia/Colombo',
     themePreference: 'dark',
     budgetResetDay: 5,
     dateFormat: 'DD/MM/YYYY'

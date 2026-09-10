@@ -8,7 +8,7 @@
     "dev": "docker compose up --build",
     "dev:backend": "cd backend && npm run dev",
     "start": "cd backend && npm start",
-    "test": "npm --prefix backend test && node --test frontend/safe-html.test.js",
+    "test": "npm --prefix backend test && node --test frontend/safe-html.test.js frontend/date-preferences.test.js",
     "test:browser": "npm --prefix backend run test:browser"
   }
 }
