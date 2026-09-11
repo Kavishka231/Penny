@@ -12,6 +12,7 @@ let request;
 let app;
 let pool;
 let processDueRecurring;
+let getNextRunDate;
 let buildBudgetAlert;
 let hashResetToken;
 let mayExposeResetToken;
@@ -38,6 +39,12 @@ function sessionFromResponse(response) {
 const currentDate = new Date().toISOString().slice(0, 10);
 const currentMonth = `${currentDate.slice(0, 7)}-01`;
 
+function dateString(value) {
+  return value instanceof Date
+    ? value.toISOString().slice(0, 10)
+    : String(value).slice(0, 10);
+}
+
 async function register(name, email) {
   const response = await request(app)
     .post('/api/auth/register')
@@ -61,7 +68,7 @@ before(async () => {
   ({ default: request } = await import('supertest'));
   ({ default: app } = await import('../src/app.js'));
   ({ pool } = await import('../src/db.js'));
-  ({ processDueRecurring } = await import('../src/services/recurringService.js'));
+  ({ getNextRunDate, processDueRecurring } = await import('../src/services/recurringService.js'));
   ({ buildBudgetAlert } = await import('../src/routes/alerts.js'));
   ({ hashResetToken, mayExposeResetToken } = await import('../src/services/passwordResetService.js'));
   ({
@@ -809,6 +816,77 @@ test('uses the same reset-day period for budgets and alerts', async () => {
   assert.equal(restored.status, 200, restored.text);
 });
 
+test('preserves monthly schedule anchors through short months and year transitions', () => {
+  const january31 = '2025-01-31';
+  const februaryFrom31 = getNextRunDate(january31, 'monthly', january31);
+  assert.equal(februaryFrom31, '2025-02-28');
+  assert.equal(getNextRunDate(februaryFrom31, 'monthly', january31), '2025-03-31');
+  assert.equal(getNextRunDate('2025-03-31', 'monthly', january31), '2025-04-30');
+  assert.equal(getNextRunDate('2025-04-30', 'monthly', january31), '2025-05-31');
+
+  const january30 = '2025-01-30';
+  assert.equal(getNextRunDate(january30, 'monthly', january30), '2025-02-28');
+  assert.equal(getNextRunDate('2025-02-28', 'monthly', january30), '2025-03-30');
+
+  const january29 = '2025-01-29';
+  assert.equal(getNextRunDate(january29, 'monthly', january29), '2025-02-28');
+  assert.equal(getNextRunDate('2025-02-28', 'monthly', january29), '2025-03-29');
+
+  assert.equal(getNextRunDate('2024-01-31', 'monthly', '2024-01-31'), '2024-02-29');
+  assert.equal(getNextRunDate('2024-02-29', 'monthly', '2024-01-31'), '2024-03-31');
+  assert.equal(getNextRunDate('2025-12-31', 'monthly', '2025-12-31'), '2026-01-31');
+});
+
+test('preserves February 29 for yearly schedules and clamps non-leap years', () => {
+  const leapDayAnchor = '2024-02-29';
+  assert.equal(getNextRunDate(leapDayAnchor, 'yearly', leapDayAnchor), '2025-02-28');
+  assert.equal(getNextRunDate('2025-02-28', 'yearly', leapDayAnchor), '2026-02-28');
+  assert.equal(getNextRunDate('2027-02-28', 'yearly', leapDayAnchor), '2028-02-29');
+});
+
+test('keeps daily and weekly recurring intervals unchanged', () => {
+  assert.equal(getNextRunDate('2025-12-31', 'daily', '2025-01-31'), '2026-01-01');
+  assert.equal(getNextRunDate('2025-12-28', 'weekly', '2025-01-31'), '2026-01-04');
+});
+
+test('processes a monthly schedule using its persisted start-date anchor', async () => {
+  const recurring = await pool.query(
+    `INSERT INTO recurring_transactions
+       (user_id, description, amount, type, frequency, start_date, next_run_date)
+     VALUES ($1, 'Month-end anchor fixture', 31, 'expense', 'monthly', '2025-01-31', '2025-01-31')
+     RETURNING id`,
+    [primary.user.id]
+  );
+
+  try {
+    for (const expectedNextRunDate of ['2025-02-28', '2025-03-31', '2025-04-30']) {
+      const result = await processDueRecurring(primary.user.id);
+      assert.equal(result.createdCount, 1);
+      assert.deepEqual(result.errors, []);
+
+      const schedule = await pool.query(
+        'SELECT next_run_date FROM recurring_transactions WHERE id = $1',
+        [recurring.rows[0].id]
+      );
+      assert.equal(dateString(schedule.rows[0].next_run_date), expectedNextRunDate);
+    }
+
+    const generated = await pool.query(
+      `SELECT transaction_date
+       FROM transactions
+       WHERE user_id = $1 AND merchant = 'Month-end anchor fixture'
+       ORDER BY transaction_date`,
+      [primary.user.id]
+    );
+    assert.deepEqual(
+      generated.rows.map((row) => dateString(row.transaction_date)),
+      ['2025-01-31', '2025-02-28', '2025-03-31']
+    );
+  } finally {
+    await pool.query('DELETE FROM recurring_transactions WHERE id = $1', [recurring.rows[0].id]);
+  }
+});
+
 test('processes a due recurring transaction exactly once per run date', async () => {
   const recurring = await authenticated('post', '/api/recurring', primary.cookie)
     .send({
@@ -823,6 +901,10 @@ test('processes a due recurring transaction exactly once per run date', async ()
   const result = await processDueRecurring(primary.user.id);
   assert.equal(result.createdCount, 1);
   assert.deepEqual(result.errors, []);
+
+  const repeated = await processDueRecurring(primary.user.id);
+  assert.equal(repeated.createdCount, 0);
+  assert.deepEqual(repeated.errors, []);
 
   const transaction = await pool.query(
     `SELECT source, merchant, amount

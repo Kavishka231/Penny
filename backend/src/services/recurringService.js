@@ -10,8 +10,9 @@ function lastDayOfMonth(year, monthIndex) {
   return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
 }
 
-export function getNextRunDate(currentDate, frequency) {
+export function getNextRunDate(currentDate, frequency, scheduleAnchor = currentDate) {
   const source = new Date(`${toDateString(currentDate)}T00:00:00Z`);
+  const anchor = new Date(`${toDateString(scheduleAnchor)}T00:00:00Z`);
   let next = new Date(source);
 
   if (frequency === 'daily') {
@@ -21,12 +22,12 @@ export function getNextRunDate(currentDate, frequency) {
   } else if (frequency === 'monthly') {
     const targetYear = source.getUTCFullYear() + Math.floor((source.getUTCMonth() + 1) / 12);
     const targetMonth = (source.getUTCMonth() + 1) % 12;
-    const day = Math.min(source.getUTCDate(), lastDayOfMonth(targetYear, targetMonth));
+    const day = Math.min(anchor.getUTCDate(), lastDayOfMonth(targetYear, targetMonth));
     next = new Date(Date.UTC(targetYear, targetMonth, day));
   } else if (frequency === 'yearly') {
     const targetYear = source.getUTCFullYear() + 1;
-    const targetMonth = source.getUTCMonth();
-    const day = Math.min(source.getUTCDate(), lastDayOfMonth(targetYear, targetMonth));
+    const targetMonth = anchor.getUTCMonth();
+    const day = Math.min(anchor.getUTCDate(), lastDayOfMonth(targetYear, targetMonth));
     next = new Date(Date.UTC(targetYear, targetMonth, day));
   } else {
     throw new Error(`Unsupported recurring frequency: ${frequency}`);
@@ -86,7 +87,11 @@ export async function processDueRecurring(userId = null) {
       }
 
       const currentRunDate = toDateString(recurring.next_run_date);
-      const nextRunDate = getNextRunDate(currentRunDate, recurring.frequency);
+      const nextRunDate = getNextRunDate(
+        currentRunDate,
+        recurring.frequency,
+        recurring.start_date
+      );
       const shouldDeactivate = recurring.end_date && nextRunDate > toDateString(recurring.end_date);
 
       await client.query(

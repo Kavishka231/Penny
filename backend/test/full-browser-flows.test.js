@@ -130,12 +130,12 @@ test('uses the real API for critical authenticated finance flows', { timeout: 90
   assert.ok(expenseCategoryId, 'Expected registration to create expense categories');
 
   await openView('profile');
-  await page.locator('#profile-form [name="timezone"]').fill('Asia/Colombo');
+  await page.locator('#profile-form [name="timezone"]').fill('America/New_York');
   await page.locator('#profile-form [name="dateFormat"]').selectOption('DD/MM/YYYY');
   await page.locator('#profile-form [name="budgetResetDay"]').fill('15');
   await page.locator('#profile-form button[type="submit"]').click();
   await page.locator('#profile-result').getByText('Profile saved successfully.').waitFor();
-  const expectedLocalDate = dateInputValue(new Date(), 'Asia/Colombo');
+  const expectedLocalDate = dateInputValue(new Date(), 'America/New_York');
   assert.equal(await page.locator('[name="transactionDate"]').inputValue(), expectedLocalDate);
 
   const owner = await pool.query('SELECT id FROM users WHERE email = $1', [ownerEmail]);
