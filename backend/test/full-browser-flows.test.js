@@ -110,7 +110,13 @@ test('uses the real API for critical authenticated finance flows', { timeout: 90
   const otherEmail = `browser-other-${unique}@example.com`;
   const maliciousMerchant = '<img src=x onerror=alert(1)>';
   let dialogCount = 0;
+  let acceptCategoryDeletion = false;
   page.on('dialog', async (dialog) => {
+    if (acceptCategoryDeletion && dialog.type() === 'confirm') {
+      acceptCategoryDeletion = false;
+      await dialog.accept();
+      return;
+    }
     dialogCount += 1;
     await dialog.dismiss();
   });
@@ -192,6 +198,31 @@ test('uses the real API for critical authenticated finance flows', { timeout: 90
   assert.equal(await maliciousCell.textContent(), maliciousMerchant);
   assert.equal(await maliciousCell.locator('img').count(), 0);
   assert.equal(dialogCount, 0, 'Stored HTML must never execute in the browser');
+
+  await openView('categories');
+  await page.locator('#category-form [name="name"]').fill('Browser category');
+  await page.locator('#category-form [name="color"]').fill('#123456');
+  await page.locator('#category-form button[type="submit"]').click();
+  const categoryCard = page.locator('#category-list .category-item', { hasText: 'Browser category' });
+  await categoryCard.waitFor();
+  await categoryCard.locator('[data-category-edit]').click();
+  assert.equal(await page.locator('#category-form [name="type"]').isDisabled(), true);
+  await page.locator('#category-form [name="name"]').fill('Updated browser category');
+  await page.locator('#category-form [name="color"]').fill('#654321');
+  await page.locator('#category-form button[type="submit"]').click();
+  const updatedCategoryCard = page.locator(
+    '#category-list .category-item',
+    { hasText: 'Updated browser category' }
+  );
+  await updatedCategoryCard.waitFor();
+  assert.equal(
+    await page.locator('#transaction-category option', { hasText: 'Updated browser category' }).count(),
+    1
+  );
+  acceptCategoryDeletion = true;
+  await updatedCategoryCard.locator('[data-category-delete]').click();
+  await updatedCategoryCard.waitFor({ state: 'detached' });
+  await page.locator('#category-result').getByText('Category deleted successfully.').waitFor();
 
   await createTransaction({
     merchant: 'Budget warning expense',

@@ -197,8 +197,14 @@ async function loadCategories() {
   refreshRecurringCategoryOptions();
   document.querySelector('#category-list').innerHTML = state.categories.map((category) => `
     <article class="category-item">
-      <span><span class="swatch" style="background:${escapeHtml(category.color)}"></span>${escapeHtml(category.name)}</span>
-      <strong>${escapeHtml(category.type)}</strong>
+      <div class="category-details">
+        <span><span class="swatch" style="background:${escapeHtml(category.color)}"></span>${escapeHtml(category.name)}</span>
+        <strong>${escapeHtml(category.type)}</strong>
+      </div>
+      <div class="category-actions">
+        <button class="ghost" type="button" data-category-edit="${escapeHtml(category.id)}">Edit</button>
+        <button class="ghost" type="button" data-category-delete="${escapeHtml(category.id)}">Delete</button>
+      </div>
     </article>
   `).join('');
 }
@@ -641,10 +647,37 @@ document.querySelector('#budget-form').addEventListener('submit', async (event) 
   }
 });
 
+function resetCategoryForm() {
+  const form = document.querySelector('#category-form');
+  form.reset();
+  form.elements.id.value = '';
+  form.elements.type.disabled = false;
+  form.elements.color.value = '#2563eb';
+  form.querySelector('button[type="submit"]').textContent = 'Add category';
+  document.querySelector('#cancel-category-edit-btn').classList.add('hidden');
+}
+
+async function refreshCategoryLabels() {
+  await loadCategories();
+  await Promise.all([
+    loadDashboard(),
+    loadTransactions(state.transactionPagination.page),
+    loadRecurringTransactions(),
+    loadBudgets()
+  ]);
+}
+
 document.querySelector('#category-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
-  const data = Object.fromEntries(new FormData(form));
+  const editing = Boolean(form.elements.id.value);
+  const data = editing
+    ? { name: form.elements.name.value, color: form.elements.color.value }
+    : {
+        name: form.elements.name.value,
+        type: form.elements.type.value,
+        color: form.elements.color.value
+      };
   const result = document.querySelector('#category-result');
   result.classList.remove('error');
   result.textContent = '';
@@ -654,14 +687,64 @@ document.querySelector('#category-form').addEventListener('submit', async (event
     return;
   }
   try {
-    await api('/categories', { method: 'POST', body: JSON.stringify(data) });
-    form.reset();
-    document.querySelector('[name="color"]').value = '#2563eb';
-    result.textContent = 'Category added successfully.';
-    await loadCategories();
+    await api(editing ? `/categories/${form.elements.id.value}` : '/categories', {
+      method: editing ? 'PATCH' : 'POST',
+      body: JSON.stringify(data)
+    });
+    resetCategoryForm();
+    result.textContent = editing ? 'Category updated successfully.' : 'Category added successfully.';
+    if (editing) {
+      await refreshCategoryLabels();
+    } else {
+      await loadCategories();
+    }
   } catch (error) {
     result.classList.add('error');
     result.textContent = error.message;
+  } finally {
+    stopLoading();
+  }
+});
+
+document.querySelector('#cancel-category-edit-btn').addEventListener('click', () => {
+  resetCategoryForm();
+  setStatus('#category-result', '');
+});
+
+document.querySelector('#category-list').addEventListener('click', async (event) => {
+  const editButton = event.target.closest('[data-category-edit]');
+  const deleteButton = event.target.closest('[data-category-delete]');
+  const categoryId = editButton?.dataset.categoryEdit || deleteButton?.dataset.categoryDelete;
+  if (!categoryId) return;
+
+  const category = state.categories.find((item) => item.id === categoryId);
+  if (!category) return;
+
+  if (editButton) {
+    const form = document.querySelector('#category-form');
+    form.elements.id.value = category.id;
+    form.elements.name.value = category.name;
+    form.elements.type.value = category.type;
+    form.elements.type.disabled = true;
+    form.elements.color.value = category.color;
+    form.querySelector('button[type="submit"]').textContent = 'Update category';
+    document.querySelector('#cancel-category-edit-btn').classList.remove('hidden');
+    setStatus('#category-result', '');
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  if (!window.confirm(`Delete the category "${category.name}"?`)) return;
+  const stopLoading = setLoading(deleteButton, 'Deleting...');
+  try {
+    await api(`/categories/${category.id}`, { method: 'DELETE' });
+    if (document.querySelector('#category-form').elements.id.value === category.id) {
+      resetCategoryForm();
+    }
+    setStatus('#category-result', 'Category deleted successfully.');
+    await loadCategories();
+  } catch (error) {
+    setStatus('#category-result', error.message, true);
   } finally {
     stopLoading();
   }

@@ -96,6 +96,140 @@ test('registers users and creates isolated default categories', async () => {
   assert.ok(categories.body.every((category) => category.user_id === primary.user.id));
 });
 
+test('updates, validates, isolates, and deletes categories', async () => {
+  const created = await authenticated('post', '/api/categories', primary.cookie)
+    .send({ name: '  Flexible spending  ', type: 'expense', color: '#123ABC' });
+  assert.equal(created.status, 201, created.text);
+  assert.equal(created.body.name, 'Flexible spending');
+  assert.equal(created.body.color, '#123ABC');
+
+  const renamed = await authenticated('patch', `/api/categories/${created.body.id}`, primary.cookie)
+    .send({ name: 'Household spending' });
+  assert.equal(renamed.status, 200, renamed.text);
+  assert.equal(renamed.body.name, 'Household spending');
+  assert.equal(renamed.body.color, '#123ABC');
+
+  const recolored = await authenticated('patch', `/api/categories/${created.body.id}`, primary.cookie)
+    .send({ color: '#abcdef' });
+  assert.equal(recolored.status, 200, recolored.text);
+  assert.equal(recolored.body.name, 'Household spending');
+  assert.equal(recolored.body.color, '#abcdef');
+
+  const updated = await authenticated('patch', `/api/categories/${created.body.id}`, primary.cookie)
+    .send({ name: 'Home costs', color: '#654321' });
+  assert.equal(updated.status, 200, updated.text);
+  assert.equal(updated.body.name, 'Home costs');
+  assert.equal(updated.body.color, '#654321');
+  assert.equal(updated.body.type, 'expense');
+
+  for (const body of [{ name: '   ' }, { color: 'blue' }, { color: '#123' }, {}]) {
+    const invalid = await authenticated('patch', `/api/categories/${created.body.id}`, primary.cookie)
+      .send(body);
+    assert.equal(invalid.status, 400, invalid.text);
+    assert.equal(invalid.body.error, 'Validation failed');
+  }
+
+  const invalidId = await authenticated('patch', '/api/categories/not-a-uuid', primary.cookie)
+    .send({ name: 'Invalid ID' });
+  assert.equal(invalidId.status, 400, invalidId.text);
+  assert.equal(invalidId.body.details[0].field, 'id');
+
+  const missingId = crypto.randomUUID();
+  const missing = await authenticated('patch', `/api/categories/${missingId}`, primary.cookie)
+    .send({ name: 'Missing' });
+  assert.equal(missing.status, 404, missing.text);
+
+  const forbiddenUpdate = await authenticated(
+    'patch',
+    `/api/categories/${created.body.id}`,
+    secondary.cookie
+  ).send({ name: 'Stolen category' });
+  assert.equal(forbiddenUpdate.status, 404, forbiddenUpdate.text);
+  const forbiddenDelete = await authenticated(
+    'delete',
+    `/api/categories/${created.body.id}`,
+    secondary.cookie
+  );
+  assert.equal(forbiddenDelete.status, 404, forbiddenDelete.text);
+
+  const duplicate = await authenticated('post', '/api/categories', primary.cookie)
+    .send({ name: 'Duplicate target', type: 'expense', color: '#111111' });
+  assert.equal(duplicate.status, 201, duplicate.text);
+  const duplicateCreate = await authenticated('post', '/api/categories', primary.cookie)
+    .send({ name: 'Duplicate target', type: 'expense', color: '#222222' });
+  assert.equal(duplicateCreate.status, 409, duplicateCreate.text);
+  const duplicateRename = await authenticated('patch', `/api/categories/${created.body.id}`, primary.cookie)
+    .send({ name: 'Duplicate target' });
+  assert.equal(duplicateRename.status, 409, duplicateRename.text);
+
+  const deleted = await authenticated('delete', `/api/categories/${created.body.id}`, primary.cookie);
+  assert.equal(deleted.status, 204, deleted.text);
+  const deletedAgain = await authenticated('delete', `/api/categories/${created.body.id}`, primary.cookie);
+  assert.equal(deletedAgain.status, 404, deletedAgain.text);
+  const duplicateDeleted = await authenticated('delete', `/api/categories/${duplicate.body.id}`, primary.cookie);
+  assert.equal(duplicateDeleted.status, 204, duplicateDeleted.text);
+});
+
+test('rejects category deletion when financial records reference it', async () => {
+  const categoryIds = {};
+  for (const reference of ['transaction', 'budget', 'recurring']) {
+    const category = await authenticated('post', '/api/categories', primary.cookie)
+      .send({ name: `Linked ${reference}`, type: 'expense', color: '#334455' });
+    assert.equal(category.status, 201, category.text);
+    categoryIds[reference] = category.body.id;
+  }
+
+  const transaction = await pool.query(
+    `INSERT INTO transactions (user_id, category_id, type, merchant, amount, transaction_date)
+     VALUES ($1, $2, 'expense', 'Linked category fixture', 10, $3)
+     RETURNING id`,
+    [primary.user.id, categoryIds.transaction, currentDate]
+  );
+  const budget = await pool.query(
+    `INSERT INTO budgets (user_id, category_id, month, limit_amount)
+     VALUES ($1, $2, $3, 100)
+     RETURNING id`,
+    [primary.user.id, categoryIds.budget, currentMonth]
+  );
+  const recurring = await pool.query(
+    `INSERT INTO recurring_transactions
+       (user_id, category_id, description, amount, type, frequency, start_date, next_run_date)
+     VALUES ($1, $2, 'Linked recurring fixture', 20, 'expense', 'monthly', $3, $3)
+     RETURNING id`,
+    [primary.user.id, categoryIds.recurring, currentDate]
+  );
+
+  const expectedReferences = {
+    transaction: { transactions: 1, budgets: 0, recurringTransactions: 0 },
+    budget: { transactions: 0, budgets: 1, recurringTransactions: 0 },
+    recurring: { transactions: 0, budgets: 0, recurringTransactions: 1 }
+  };
+  for (const reference of Object.keys(categoryIds)) {
+    const response = await authenticated(
+      'delete',
+      `/api/categories/${categoryIds[reference]}`,
+      primary.cookie
+    );
+    assert.equal(response.status, 409, response.text);
+    assert.equal(response.body.error, 'Category is linked to financial records and cannot be deleted');
+    assert.deepEqual(response.body.references, expectedReferences[reference]);
+  }
+
+  const preserved = await pool.query(
+    'SELECT id FROM categories WHERE id IN ($1, $2, $3)',
+    Object.values(categoryIds)
+  );
+  assert.equal(preserved.rowCount, 3);
+
+  await pool.query('DELETE FROM transactions WHERE id = $1', [transaction.rows[0].id]);
+  await pool.query('DELETE FROM budgets WHERE id = $1', [budget.rows[0].id]);
+  await pool.query('DELETE FROM recurring_transactions WHERE id = $1', [recurring.rows[0].id]);
+  for (const categoryId of Object.values(categoryIds)) {
+    const response = await authenticated('delete', `/api/categories/${categoryId}`, primary.cookie);
+    assert.equal(response.status, 204, response.text);
+  }
+});
+
 test('reports database health and applies browser security policy', async () => {
   const health = await request(app).get('/api/health');
   assert.equal(health.status, 200, health.text);

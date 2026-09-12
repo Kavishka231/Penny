@@ -167,6 +167,7 @@
 
           <section id="categories" class="view">
             <form id="category-form" class="panel form-grid">
+              <input type="hidden" name="id">
               <input name="name" placeholder="Category name" required>
               <select name="type" aria-label="Category type">
                 <option value="expense">Expense</option>
@@ -174,6 +175,7 @@
               </select>
               <input name="color" type="color" value="#2563eb" aria-label="Category color">
               <button type="submit">Add category</button>
+              <button type="button" id="cancel-category-edit-btn" class="secondary hidden">Cancel edit</button>
             </form>
             <p id="category-result" class="status-message"></p>
             <div id="category-list" class="category-list"></div>

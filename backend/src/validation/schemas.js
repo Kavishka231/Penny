@@ -131,11 +131,30 @@ export const budgetQuerySchema = z.object({
 	month: monthString.optional(),
 }).strict();
 
+const categoryName = z.string()
+	.transform((value) => value.trim())
+	.refine((value) => value.length > 0, 'Category name is required')
+	.refine((value) => value.length <= 50, 'Category name cannot exceed 50 characters');
+
+const categoryColor = z.string().regex(
+	/^#[0-9a-fA-F]{6}$/,
+	'Category color must be a six-digit hex color',
+);
+
 export const categorySchema = z.object({
-	name: z.string().min(1, 'Category name is required').max(50, 'Category name cannot exceed 50 characters'),
+	name: categoryName,
 	type: z.enum(['income', 'expense']),
-	color: z.string().min(1).optional(),
+	color: categoryColor.optional(),
 }).strict();
+
+export const categoryUpdateSchema = z.object({
+	name: categoryName.optional(),
+	color: categoryColor.optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, {
+	message: 'At least one category field is required',
+});
+
+export const categoryIdSchema = z.uuid('Category ID must be a valid UUID');
 
 const recurringTransactionFields = z.object({
 	description: z.string().min(1, 'Description is required').transform((v) => v.trim()).refine((v) => v.length > 0, {

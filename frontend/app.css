@@ -592,6 +592,19 @@ td {
   gap: 1rem;
 }
 
+.category-details,
+.category-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.category-details strong {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
 .swatch {
   display: inline-block;
   width: 0.85rem;
